@@ -327,8 +327,30 @@
     return node;
   }
 
-  function trunc(s, n) { return s.length > n ? s.slice(0, n - 1) + "..." : s; }
   function nlog10(x) { return -Math.log10(Math.max(x, 1e-300)); }
+
+  // Word-wrap a term name into up to maxLines lines of ~maxChars each; the last
+  // line is ellipsized only if it still overflows (full name stays in tooltip).
+  function wrapLabel(name, maxChars, maxLines) {
+    var words = name.split(" ");
+    var lines = [], cur = "";
+    for (var i = 0; i < words.length; i++) {
+      var test = cur ? cur + " " + words[i] : words[i];
+      if (test.length > maxChars && cur) {
+        lines.push(cur);
+        if (lines.length === maxLines - 1) {
+          var rest = words.slice(i).join(" ");
+          lines.push(rest.length > maxChars ? rest.slice(0, maxChars - 1) + "..." : rest);
+          return lines;
+        }
+        cur = words[i];
+      } else {
+        cur = test;
+      }
+    }
+    if (cur) lines.push(cur);
+    return lines;
+  }
 
   function sigLabelText() {
     var thr = parseFloat(el.fdr.value) || 0;
@@ -357,19 +379,26 @@
   }
 
   function axisLabels(rows, svg, marginLeft, marginTop, rowH) {
+    // Chars that fit the gutter at ~11px; wrap to at most 2 lines.
+    var maxChars = Math.max(14, Math.floor((marginLeft - 16) / 5.8));
     rows.forEach(function (r, i) {
-      var y = marginTop + i * rowH + rowH / 2;
+      var cy = marginTop + i * rowH + rowH / 2;
+      var lines = wrapLabel(r.name, maxChars, 2);
       var t = svgEl("text", {
-        x: marginLeft - 8, y: y, "text-anchor": "end", "dominant-baseline": "middle",
+        x: marginLeft - 8, "text-anchor": "end", "dominant-baseline": "middle",
         "font-size": 11, fill: "#1c2330"
-      }, trunc(r.name, 30));
+      });
+      var startY = cy - (lines.length - 1) * 6;
+      lines.forEach(function (ln, j) {
+        t.appendChild(svgEl("tspan", { x: marginLeft - 8, y: startY + j * 12 }, ln));
+      });
       withTitle(t, r.name + " (" + r.namespace + ")");
       svg.appendChild(t);
     });
   }
 
   function buildBarSvg(rows, W) {
-    var mL = 220, mR = 56, mT = 18, mB = 34, rowH = 22, barH = 14;
+    var mL = 250, mR = 56, mT = 18, mB = 34, rowH = 26, barH = 14;
     var H = mT + rows.length * rowH + mB;
     var plotW = W - mL - mR;
     var svg = newSvg(W, H);
@@ -408,7 +437,7 @@
   }
 
   function buildDotSvg(rows, W) {
-    var mL = 220, mR = 150, mT = 18, mB = 40, rowH = 22;
+    var mL = 250, mR = 150, mT = 18, mB = 40, rowH = 26;
     var H = mT + rows.length * rowH + mB;
     var plotW = W - mL - mR;
     var svg = newSvg(W, H);
@@ -494,7 +523,7 @@
     // screens and scrolls inside its container on narrow ones; high enough
     // intrinsic width keeps SVG/PNG export crisp.
     var cw = el.chartWrap.clientWidth || 680;
-    var W = Math.max(560, Math.min(cw, 1100));
+    var W = Math.max(620, Math.min(cw, 1100));
     var svg = state.chartType === "bar" ? buildBarSvg(top, W) : buildDotSvg(top, W);
     el.chartWrap.innerHTML = "";
     el.chartWrap.appendChild(svg);
