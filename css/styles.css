@@ -171,6 +171,14 @@ th.sort-desc::after { border-top: 5px solid currentColor; }
 
 .pager { display: flex; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
 
+/* Visualization panel. */
+.viz-controls { display: flex; flex-wrap: wrap; gap: 18px; align-items: center; margin-bottom: 10px; }
+.viz-controls .toggle button { padding: 6px 14px; }
+.viz-dl { margin-left: auto; }
+.chart-wrap { width: 100%; overflow-x: auto; }
+.chart-wrap svg { max-width: 100%; height: auto; display: block; }
+.empty-chart { color: var(--muted); padding: 16px 4px; }
+
 footer { padding: 18px 20px 40px; color: var(--muted); font-size: 13px; }
 footer a { color: var(--accent); }
 

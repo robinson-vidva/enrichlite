@@ -121,6 +121,32 @@
       </div>
       <p id="noResults" class="muted hidden">No enriched terms to show.</p>
     </section>
+
+    <section class="panel" id="vizPanel">
+      <div class="viz-controls">
+        <div class="rc-group">
+          <span class="ctl-label">Chart</span>
+          <div class="toggle" id="chartToggle">
+            <button data-chart="dot" class="active">Dot</button>
+            <button data-chart="bar">Bar</button>
+          </div>
+        </div>
+        <div class="rc-group">
+          <label for="topN">Top terms</label>
+          <select id="topN">
+            <option value="10">10</option>
+            <option value="25" selected>25</option>
+            <option value="50">50</option>
+          </select>
+        </div>
+        <div class="rc-group viz-dl">
+          <button id="dlSvg" disabled>Download SVG</button>
+          <button id="dlPng" disabled>Download PNG</button>
+        </div>
+      </div>
+      <p id="vizCaption" class="muted"></p>
+      <div id="chartWrap" class="chart-wrap"></div>
+    </section>
   </main>
 
   <footer>

@@ -12,7 +12,10 @@
     sortKey: "p",
     sortDir: 1,
     page: 1,
-    pageSize: 25        // number, or "all"
+    pageSize: 25,       // number, or "all"
+    chartType: "dot",   // "dot" | "bar"
+    topN: 25,
+    currentSvg: null
   };
 
   var GENE_PREVIEW = 6;  // genes shown before "+N more" in the table
@@ -51,7 +54,13 @@
     nextPage: document.getElementById("nextPage"),
     showingInfo: document.getElementById("showingInfo"),
     filterChips: document.getElementById("filterChips"),
-    clearFilters: document.getElementById("clearFilters")
+    clearFilters: document.getElementById("clearFilters"),
+    chartToggle: document.getElementById("chartToggle"),
+    topN: document.getElementById("topN"),
+    vizCaption: document.getElementById("vizCaption"),
+    chartWrap: document.getElementById("chartWrap"),
+    dlSvg: document.getElementById("dlSvg"),
+    dlPng: document.getElementById("dlPng")
   };
 
   function fetchJson(path) {
@@ -255,6 +264,7 @@
 
     renderSortIndicators();
     renderActiveFilters();
+    renderChart();
   }
 
   function renderSortIndicators() {
@@ -295,6 +305,227 @@
     return String(s).replace(/[&<>"]/g, function (c) {
       return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
     });
+  }
+
+  // ---- charts (hand-rolled SVG, no dependency) ----
+  var SVGNS = "http://www.w3.org/2000/svg";
+
+  function svgEl(tag, attrs, text) {
+    var e = document.createElementNS(SVGNS, tag);
+    for (var k in attrs) if (Object.prototype.hasOwnProperty.call(attrs, k)) e.setAttribute(k, attrs[k]);
+    if (text != null) e.appendChild(document.createTextNode(text));
+    return e;
+  }
+
+  function withTitle(node, full) {
+    node.appendChild(svgEl("title", {}, full));
+    return node;
+  }
+
+  function trunc(s, n) { return s.length > n ? s.slice(0, n - 1) + "..." : s; }
+  function nlog10(x) { return -Math.log10(Math.max(x, 1e-300)); }
+
+  function sigLabelText() {
+    var thr = parseFloat(el.fdr.value) || 0;
+    var name = el.adjust.value === "bonferroni" ? "Bonferroni" : "FDR";
+    return name + " < " + thr;
+  }
+
+  // Filtered (threshold + size) rows, sorted by significance ascending, for
+  // charts. Independent of the table's current sort column.
+  function chartRows() {
+    if (!state.lastResult) return [];
+    var rows = state.lastResult.rows.filter(function (r) {
+      return passesThreshold(r) && passesSize(r);
+    });
+    rows.sort(function (a, b) { return a.p - b.p; });
+    return rows;
+  }
+
+  function newSvg(w, h) {
+    var svg = svgEl("svg", {
+      xmlns: SVGNS, viewBox: "0 0 " + w + " " + h, width: w, height: h,
+      "font-family": "-apple-system, Segoe UI, Roboto, sans-serif"
+    });
+    svg.appendChild(svgEl("rect", { x: 0, y: 0, width: w, height: h, fill: "#ffffff" }));
+    return svg;
+  }
+
+  function axisLabels(rows, svg, marginLeft, marginTop, rowH) {
+    rows.forEach(function (r, i) {
+      var y = marginTop + i * rowH + rowH / 2;
+      var t = svgEl("text", {
+        x: marginLeft - 8, y: y, "text-anchor": "end", "dominant-baseline": "middle",
+        "font-size": 11, fill: "#1c2330"
+      }, trunc(r.name, 30));
+      withTitle(t, r.name + " (" + r.namespace + ")");
+      svg.appendChild(t);
+    });
+  }
+
+  function buildBarSvg(rows) {
+    var W = 680, mL = 220, mR = 56, mT = 18, mB = 34, rowH = 22, barH = 14;
+    var H = mT + rows.length * rowH + mB;
+    var plotW = W - mL - mR;
+    var svg = newSvg(W, H);
+    var xmax = Math.max.apply(null, rows.map(function (r) { return nlog10(r.fdr); })) || 1;
+
+    // x gridlines + ticks
+    var ticks = 4;
+    for (var t = 0; t <= ticks; t++) {
+      var xv = xmax * t / ticks;
+      var x = mL + (xv / xmax) * plotW;
+      svg.appendChild(svgEl("line", { x1: x, y1: mT, x2: x, y2: mT + rows.length * rowH, stroke: "#eceff5" }));
+      svg.appendChild(svgEl("text", { x: x, y: H - mB + 16, "text-anchor": "middle", "font-size": 10, fill: "#66718a" }, xv.toFixed(1)));
+    }
+    svg.appendChild(svgEl("text", { x: mL + plotW / 2, y: H - 4, "text-anchor": "middle", "font-size": 11, fill: "#66718a" }, "-log10(FDR)"));
+
+    rows.forEach(function (r, i) {
+      var y = mT + i * rowH;
+      var val = nlog10(r.fdr);
+      var len = (val / xmax) * plotW;
+      var bar = svgEl("rect", { x: mL, y: y + (rowH - barH) / 2, width: Math.max(len, 0.5), height: barH, fill: "#2d6cdf", rx: 2 });
+      withTitle(bar, r.name + "  FDR=" + r.fdr.toExponential(2) + "  overlap=" + r.k + "/" + r.K);
+      svg.appendChild(bar);
+    });
+    axisLabels(rows, svg, mL, mT, rowH);
+    return svg;
+  }
+
+  // 3-stop YlOrRd-ish scale; t in [0,1], 1 = most significant.
+  function fdrColor(t) {
+    var stops = [[255, 237, 160], [254, 178, 76], [227, 26, 28]];
+    var seg = t >= 1 ? 1 : t * (stops.length - 1);
+    var i = Math.min(Math.floor(seg), stops.length - 2);
+    var f = seg - i, a = stops[i], b = stops[i + 1];
+    var c = a.map(function (av, j) { return Math.round(av + f * (b[j] - av)); });
+    return "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")";
+  }
+
+  function buildDotSvg(rows) {
+    var W = 680, mL = 220, mR = 150, mT = 18, mB = 40, rowH = 22;
+    var H = mT + rows.length * rowH + mB;
+    var plotW = W - mL - mR;
+    var svg = newSvg(W, H);
+
+    var xs = rows.map(function (r) { return Math.log10(Math.max(r.fold, 0.001)); });
+    var xmin = Math.min.apply(null, xs), xmax = Math.max.apply(null, xs);
+    if (xmin === xmax) { xmin -= 0.5; xmax += 0.5; }
+    var pad = (xmax - xmin) * 0.08; xmin -= pad; xmax += pad;
+    var xpix = function (lv) { return mL + (lv - xmin) / (xmax - xmin) * plotW; };
+
+    var ks = rows.map(function (r) { return r.k; });
+    var kmin = Math.min.apply(null, ks), kmax = Math.max.apply(null, ks);
+    var rad = function (k) { return kmax === kmin ? 7 : 4 + (k - kmin) / (kmax - kmin) * 8; };
+
+    var vs = rows.map(function (r) { return nlog10(r.fdr); });
+    var vmin = Math.min.apply(null, vs), vmax = Math.max.apply(null, vs);
+    var colorT = function (v) { return vmax === vmin ? 1 : (v - vmin) / (vmax - vmin); };
+
+    // x gridlines + ticks (labelled in fold-enrichment units)
+    var ticks = 4;
+    for (var t = 0; t <= ticks; t++) {
+      var lv = xmin + (xmax - xmin) * t / ticks;
+      var x = xpix(lv);
+      svg.appendChild(svgEl("line", { x1: x, y1: mT, x2: x, y2: mT + rows.length * rowH, stroke: "#eceff5" }));
+      var fold = Math.pow(10, lv);
+      svg.appendChild(svgEl("text", { x: x, y: H - mB + 16, "text-anchor": "middle", "font-size": 10, fill: "#66718a" },
+        fold >= 10 ? String(Math.round(fold)) : fold.toFixed(1)));
+    }
+    svg.appendChild(svgEl("text", { x: mL + plotW / 2, y: H - 6, "text-anchor": "middle", "font-size": 11, fill: "#66718a" }, "fold enrichment (log scale)"));
+
+    rows.forEach(function (r, i) {
+      var y = mT + i * rowH + rowH / 2;
+      var dot = svgEl("circle", {
+        cx: xpix(Math.log10(Math.max(r.fold, 0.001))), cy: y, r: rad(r.k),
+        fill: fdrColor(colorT(nlog10(r.fdr))), stroke: "#7a1d1d", "stroke-width": 0.5
+      });
+      withTitle(dot, r.name + "  fold=" + r.fold.toFixed(1) + "  overlap=" + r.k + "/" + r.K + "  FDR=" + r.fdr.toExponential(2));
+      svg.appendChild(dot);
+    });
+    axisLabels(rows, svg, mL, mT, rowH);
+
+    // legends in the right margin: FDR color gradient + overlap size
+    var lx = W - mR + 24, ly = mT + 6;
+    svg.appendChild(svgEl("text", { x: lx, y: ly, "font-size": 10, fill: "#66718a" }, "FDR"));
+    var gradH = 70;
+    for (var g = 0; g < gradH; g++) {
+      var tt = 1 - g / gradH;
+      svg.appendChild(svgEl("rect", { x: lx, y: ly + 6 + g, width: 12, height: 1, fill: fdrColor(tt) }));
+    }
+    svg.appendChild(svgEl("text", { x: lx + 16, y: ly + 12, "font-size": 9, fill: "#66718a" }, "most sig"));
+    svg.appendChild(svgEl("text", { x: lx + 16, y: ly + 6 + gradH, "font-size": 9, fill: "#66718a" }, "least"));
+    var sy = ly + 6 + gradH + 24;
+    svg.appendChild(svgEl("text", { x: lx, y: sy - 8, "font-size": 10, fill: "#66718a" }, "overlap"));
+    [kmin, kmax].forEach(function (k, j) {
+      if (j === 1 && kmax === kmin) return;
+      var cy = sy + 8 + j * 26;
+      svg.appendChild(svgEl("circle", { cx: lx + 8, cy: cy, r: rad(k), fill: "#ccd3e0", stroke: "#7a1d1d", "stroke-width": 0.5 }));
+      svg.appendChild(svgEl("text", { x: lx + 24, y: cy + 3, "font-size": 9, fill: "#66718a" }, String(k)));
+    });
+    return svg;
+  }
+
+  function renderChart() {
+    if (!state.lastResult) {
+      el.chartWrap.innerHTML = "";
+      el.vizCaption.textContent = "Run an analysis to see charts.";
+      state.currentSvg = null;
+      el.dlSvg.disabled = true; el.dlPng.disabled = true;
+      return;
+    }
+    var rows = chartRows();
+    var M = rows.length;
+    if (M === 0) {
+      el.chartWrap.innerHTML = '<p class="empty-chart">No terms pass ' + esc(sigLabelText()) +
+        ". Adjust the threshold or filters.</p>";
+      el.vizCaption.textContent = "";
+      state.currentSvg = null;
+      el.dlSvg.disabled = true; el.dlPng.disabled = true;
+      return;
+    }
+    var top = rows.slice(0, state.topN);
+    var svg = state.chartType === "bar" ? buildBarSvg(top) : buildDotSvg(top);
+    el.chartWrap.innerHTML = "";
+    el.chartWrap.appendChild(svg);
+    state.currentSvg = svg;
+    el.vizCaption.textContent = "Showing top " + top.length + " of " + M +
+      " significant terms (" + sigLabelText() + "), ordered by significance.";
+    el.dlSvg.disabled = false; el.dlPng.disabled = false;
+  }
+
+  function serializeSvg(svg) {
+    var s = new XMLSerializer().serializeToString(svg);
+    if (s.indexOf("xmlns=") === -1) s = s.replace("<svg", '<svg xmlns="' + SVGNS + '"');
+    return s;
+  }
+
+  function downloadSvg() {
+    if (!state.currentSvg) return;
+    saveBlob(serializeSvg(state.currentSvg), "image/svg+xml", "enrichlite_" + state.chartType + ".svg");
+  }
+
+  function downloadPng() {
+    if (!state.currentSvg) return;
+    var svg = state.currentSvg;
+    var W = +svg.getAttribute("width"), H = +svg.getAttribute("height"), scale = 2;
+    var data = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(serializeSvg(svg))));
+    var img = new Image();
+    img.onload = function () {
+      var c = document.createElement("canvas");
+      c.width = W * scale; c.height = H * scale;
+      var ctx = c.getContext("2d");
+      ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, c.width, c.height);
+      ctx.drawImage(img, 0, 0, c.width, c.height);
+      c.toBlob(function (b) {
+        var a = document.createElement("a");
+        a.href = URL.createObjectURL(b);
+        a.download = "enrichlite_" + state.chartType + ".png";
+        a.click();
+        URL.revokeObjectURL(a.href);
+      }, "image/png");
+    };
+    img.src = data;
   }
 
   // Export uses the full filtered + sorted view (all pages, not just the
@@ -398,6 +629,20 @@
     });
     el.dlCsv.addEventListener("click", downloadCsv);
     el.dlJson.addEventListener("click", downloadJson);
+    el.chartToggle.addEventListener("click", function (e) {
+      var b = e.target.closest("button[data-chart]");
+      if (!b) return;
+      Array.prototype.forEach.call(el.chartToggle.children, function (c) { c.classList.remove("active"); });
+      b.classList.add("active");
+      state.chartType = b.dataset.chart;
+      renderChart();
+    });
+    el.topN.addEventListener("change", function () {
+      state.topN = parseInt(el.topN.value, 10);
+      renderChart();
+    });
+    el.dlSvg.addEventListener("click", downloadSvg);
+    el.dlPng.addEventListener("click", downloadPng);
     Array.prototype.forEach.call(el.results.querySelectorAll("th[data-sort]"), function (th) {
       th.addEventListener("click", function () {
         var key = th.dataset.sort;
@@ -418,6 +663,7 @@
     populateCollections();
     renderAttribution();
     wireEvents();
+    renderChart();
   }
 
   // Manifest is preloaded by the inline bootstrap in index.html (fetched with
