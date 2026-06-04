@@ -1,0 +1,8 @@
+{
+  "_demo": true,
+  "_note": "DEMO illustrative symbols, not a real gene universe. Replaced by scripts/build_genesets.py.",
+  "species": "human",
+  "codingN": 19294,
+  "symbols": ["BRAF", "TP53", "EGFR", "KRAS", "MYC", "PTEN", "AKT1", "MTOR", "CDKN2A", "RB1", "MDM2", "PIK3CA", "STK11", "NF1", "VHL", "APC", "CTNNB1", "SMAD4", "GNAQ", "GNA11"],
+  "aliases": {}
+}

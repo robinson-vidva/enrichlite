@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>enrichlite - gene-set over-representation analysis</title>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <header>
+    <h1>enrichlite</h1>
+    <p class="tagline">Client-side gene-set over-representation analysis. Runs entirely in your browser.</p>
+    <div id="demoBanner" class="banner hidden">
+      DEMO data loaded - illustrative gene sets only, not real biology. Run scripts/build_genesets.py to populate real data.
+    </div>
+  </header>
+
+  <main>
+    <section class="panel">
+      <label for="genes">Paste gene symbols (newline, comma, or whitespace separated)</label>
+      <textarea id="genes" rows="8" placeholder="BRAF&#10;TP53&#10;EGFR"></textarea>
+
+      <div class="controls">
+        <div class="control">
+          <span class="ctl-label">Species</span>
+          <div class="toggle" id="speciesToggle">
+            <button data-species="human" class="active">Human</button>
+            <button data-species="mouse">Mouse</button>
+          </div>
+        </div>
+
+        <div class="control">
+          <label for="collection">Collection</label>
+          <select id="collection"></select>
+        </div>
+
+        <div class="control">
+          <label for="background">Background</label>
+          <select id="background">
+            <option value="annotated">Annotated in collection</option>
+            <option value="coding">All protein-coding</option>
+            <option value="custom">Custom (paste below)</option>
+          </select>
+        </div>
+
+        <div class="control">
+          <label for="fdr">FDR threshold</label>
+          <input id="fdr" type="number" min="0" max="1" step="0.01" value="0.05" />
+        </div>
+
+        <div class="control">
+          <label for="adjust">Significance by</label>
+          <select id="adjust">
+            <option value="fdr">BH-FDR</option>
+            <option value="bonferroni">Bonferroni</option>
+          </select>
+        </div>
+      </div>
+
+      <div id="customBgWrap" class="hidden">
+        <label for="customBg">Custom background gene symbols</label>
+        <textarea id="customBg" rows="3" placeholder="paste background gene list"></textarea>
+      </div>
+
+      <div class="actions">
+        <button id="run" class="primary">Run analysis</button>
+        <button id="dlCsv" disabled>Download CSV</button>
+        <button id="dlJson" disabled>Download JSON</button>
+      </div>
+
+      <div id="report" class="report"></div>
+    </section>
+
+    <section class="panel">
+      <table id="results">
+        <thead>
+          <tr>
+            <th data-sort="name">Term</th>
+            <th data-sort="namespace">Namespace</th>
+            <th data-sort="K">Size</th>
+            <th data-sort="k">Overlap</th>
+            <th data-sort="fold">Fold</th>
+            <th data-sort="p">P</th>
+            <th data-sort="fdr">FDR</th>
+            <th data-sort="bonferroni">Bonferroni</th>
+            <th>Genes</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <p id="noResults" class="muted hidden">No enriched terms to show.</p>
+    </section>
+  </main>
+
+  <footer>
+    <p id="attrib"></p>
+    <p class="muted">
+      Reactome: CC0. MSigDB Hallmark: CC BY 4.0 (Broad/MIT/UC). Gene Ontology: CC BY 4.0.
+      <a href="#" id="methodsLink">Methods</a>
+    </p>
+  </footer>
+
+  <script src="js/app.js"></script>
+</body>
+</html>

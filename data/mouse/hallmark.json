@@ -1,0 +1,10 @@
+{
+  "_demo": true,
+  "collection": "hallmark",
+  "species": "mouse",
+  "terms": [
+    { "id": "DEMO_MH_A", "name": "DEMO Mouse Hallmark Set A", "namespace": "hallmark", "genes": [0, 1, 2, 3, 4, 5] },
+    { "id": "DEMO_MH_B", "name": "DEMO Mouse Hallmark Set B", "namespace": "hallmark", "genes": [6, 7, 8, 9, 10] },
+    { "id": "DEMO_MH_C", "name": "DEMO Mouse Hallmark Set C", "namespace": "hallmark", "genes": [11, 12, 13, 14, 15, 16] }
+  ]
+}

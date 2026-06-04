@@ -1,0 +1,24 @@
+{
+  "demo": true,
+  "symbols": {
+    "human": "data/human/symbols.json",
+    "mouse": "data/mouse/symbols.json"
+  },
+  "collections": [
+    { "key": "hallmark", "label": "Hallmark", "species": "human", "path": "data/human/hallmark.json", "available": true, "N": 16 },
+    { "key": "reactome", "label": "Reactome", "species": "human", "path": "data/human/reactome.json", "available": true, "N": 17 },
+    { "key": "go_bp", "label": "GO-BP", "species": "human", "path": "data/human/go_bp.json", "available": false, "N": 0 },
+    { "key": "go_mf", "label": "GO-MF", "species": "human", "path": "data/human/go_mf.json", "available": false, "N": 0 },
+    { "key": "go_cc", "label": "GO-CC", "species": "human", "path": "data/human/go_cc.json", "available": false, "N": 0 },
+    { "key": "hallmark", "label": "Hallmark", "species": "mouse", "path": "data/mouse/hallmark.json", "available": true, "N": 16 },
+    { "key": "reactome", "label": "Reactome", "species": "mouse", "path": "data/mouse/reactome.json", "available": true, "N": 17 },
+    { "key": "go_bp", "label": "GO-BP", "species": "mouse", "path": "data/mouse/go_bp.json", "available": false, "N": 0 },
+    { "key": "go_mf", "label": "GO-MF", "species": "mouse", "path": "data/mouse/go_mf.json", "available": false, "N": 0 },
+    { "key": "go_cc", "label": "GO-CC", "species": "mouse", "path": "data/mouse/go_cc.json", "available": false, "N": 0 }
+  ],
+  "sources": {
+    "reactome": { "version": null },
+    "msigdb": { "version": null },
+    "go": { "release": null, "doi": null }
+  }
+}

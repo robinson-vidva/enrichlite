@@ -1,0 +1,2 @@
+requests>=2.31
+goatools>=1.3

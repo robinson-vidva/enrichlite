@@ -1,0 +1,8 @@
+{
+  "_demo": true,
+  "_note": "DEMO illustrative symbols, not a real gene universe. Replaced by scripts/build_genesets.py.",
+  "species": "mouse",
+  "codingN": 22599,
+  "symbols": ["Braf", "Trp53", "Egfr", "Kras", "Myc", "Pten", "Akt1", "Mtor", "Cdkn2a", "Rb1", "Mdm2", "Pik3ca", "Stk11", "Nf1", "Vhl", "Apc", "Ctnnb1", "Smad4", "Gnaq", "Gna11"],
+  "aliases": {}
+}

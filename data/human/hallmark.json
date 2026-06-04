@@ -1,0 +1,10 @@
+{
+  "_demo": true,
+  "collection": "hallmark",
+  "species": "human",
+  "terms": [
+    { "id": "DEMO_HALLMARK_A", "name": "DEMO Hallmark Set A", "namespace": "hallmark", "genes": [0, 1, 2, 3, 4, 5] },
+    { "id": "DEMO_HALLMARK_B", "name": "DEMO Hallmark Set B", "namespace": "hallmark", "genes": [6, 7, 8, 9, 10] },
+    { "id": "DEMO_HALLMARK_C", "name": "DEMO Hallmark Set C", "namespace": "hallmark", "genes": [11, 12, 13, 14, 15, 16] }
+  ]
+}

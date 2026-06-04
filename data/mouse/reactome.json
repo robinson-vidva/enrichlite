@@ -1,0 +1,10 @@
+{
+  "_demo": true,
+  "collection": "reactome",
+  "species": "mouse",
+  "terms": [
+    { "id": "DEMO-R-MMU-1", "name": "DEMO Mouse Reactome Pathway 1", "namespace": "Reactome Pathway", "genes": [0, 2, 3, 11, 13] },
+    { "id": "DEMO-R-MMU-2", "name": "DEMO Mouse Reactome Pathway 2", "namespace": "Reactome Pathway", "genes": [1, 5, 6, 7, 8, 9] },
+    { "id": "DEMO-R-MMU-3", "name": "DEMO Mouse Reactome Pathway 3", "namespace": "Reactome Pathway", "genes": [14, 15, 16, 17, 18, 19] }
+  ]
+}
