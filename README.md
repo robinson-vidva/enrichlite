@@ -31,6 +31,11 @@ needs auth, download the Hallmark GMTs manually and drop them in `data/raw/`
 (e.g. `h.all.v2025.1.Hs.symbols.gmt`, `mh.all.v2025.1.Mm.symbols.gmt`), then
 re-run. GO collections (BP/MF/CC) are added in Stage 2.
 
+Pass `--cache-raw` to save every downloaded source into `data/raw/` and reuse
+it on later runs instead of re-downloading (useful for Stage 2 GO work). The
+build prints whether each source was downloaded or served from cache. To force
+fresh downloads, clear the cache with `rm -rf data/raw/`.
+
 ## GitHub Pages
 
 Hosted from the repository root of the `main` branch. In the GitHub repo:

@@ -43,11 +43,51 @@ def fetch_text(url, timeout=120):
     return fetch_bytes(url, timeout).decode("utf-8", "replace")
 
 
+def human_size(nbytes):
+    if nbytes >= 1024 * 1024:
+        return "%.1f MB" % (nbytes / (1024.0 * 1024.0))
+    if nbytes >= 1024:
+        return "%.1f KB" % (nbytes / 1024.0)
+    return str(nbytes) + " B"
+
+
+def atomic_write(path, data, mode="wb"):
+    # Write to a temp name and rename, so a failure never leaves a partial file.
+    tmp = path + ".tmp"
+    with open(tmp, mode) as fh:
+        fh.write(data)
+    os.replace(tmp, path)
+
+
+class RawCache:
+    # When enabled, save downloads under raw_dir and reuse them on later runs.
+    def __init__(self, raw_dir, enabled):
+        self.raw = raw_dir
+        self.enabled = enabled
+
+    def get_bytes(self, url, fname, label):
+        path = os.path.join(self.raw, fname)
+        if self.enabled and os.path.isfile(path):
+            with open(path, "rb") as fh:
+                data = fh.read()
+            log(label + ": cached (" + os.path.relpath(path, ROOT) + ")")
+            return data
+        data = fetch_bytes(url)  # raises before any write on failure
+        log(label + ": downloaded " + human_size(len(data)))
+        if self.enabled:
+            os.makedirs(self.raw, exist_ok=True)
+            atomic_write(path, data)
+        return data
+
+    def get_text(self, url, fname, label):
+        return self.get_bytes(url, fname, label).decode("utf-8", "replace")
+
+
 # --- gene_info: symbol table, protein-coding count, alias map ---
 
-def load_gene_info(species):
-    log("downloading gene_info for " + species)
-    raw = fetch_bytes(GENEINFO[species])
+def load_gene_info(species, dl):
+    raw = dl.get_bytes(GENEINFO[species], os.path.basename(GENEINFO[species]),
+                       "gene_info " + species)
     txt = gzip.decompress(raw).decode("utf-8", "replace")
     geneid_to_symbol = {}     # NCBI GeneID -> authoritative symbol
     coding_symbols = []       # protein-coding authoritative symbols
@@ -77,9 +117,9 @@ def load_gene_info(species):
 
 # --- Reactome ---
 
-def load_reactome_names():
+def load_reactome_names(dl):
     # stable id -> name, and name -> stable id per species prefix
-    txt = fetch_text(REACTOME_PATHWAYS)
+    txt = dl.get_text(REACTOME_PATHWAYS, "ReactomePathways.txt", "Reactome pathway names")
     id_to_name = {}
     name_to_id = {}
     for line in txt.splitlines():
@@ -92,9 +132,8 @@ def load_reactome_names():
     return id_to_name, name_to_id
 
 
-def reactome_human_from_gmt(name_to_id):
-    log("downloading Reactome human GMT")
-    raw = fetch_bytes(REACTOME_GMT_ZIP)
+def reactome_human_from_gmt(name_to_id, dl):
+    raw = dl.get_bytes(REACTOME_GMT_ZIP, "ReactomePathways.gmt.zip", "Reactome human GMT")
     zf = zipfile.ZipFile(io.BytesIO(raw))
     gmt_name = [n for n in zf.namelist() if n.endswith(".gmt")][0]
     text = zf.read(gmt_name).decode("utf-8", "replace")
@@ -110,9 +149,8 @@ def reactome_human_from_gmt(name_to_id):
     return terms
 
 
-def reactome_mouse_from_ncbi(geneid_to_symbol, id_to_name):
-    log("downloading NCBI2Reactome mapping (mouse)")
-    txt = fetch_text(REACTOME_NCBI)
+def reactome_mouse_from_ncbi(geneid_to_symbol, id_to_name, dl):
+    txt = dl.get_text(REACTOME_NCBI, "NCBI2Reactome_All_Levels.txt", "NCBI2Reactome mapping")
     by_path = {}
     for line in txt.splitlines():
         f = line.split("\t")
@@ -152,39 +190,46 @@ def looks_like_gmt(text):
     return "\t" in first and "<html" not in text[:200].lower()
 
 
-def load_hallmark(species, raw_dir):
-    # Returns list of {id,name,namespace,symbols} or None if unavailable.
+def parse_release(name):
+    # Extract the MSigDB release (e.g. 2026.1) from a GMT filename.
+    m = re.search(r"\.v(\d+\.\d+(?:\.\d+)?)\.", name)
+    return m.group(1) if m else None
+
+
+def load_hallmark(species, dl):
+    # Returns (terms, filename, release); terms is None if unavailable.
     fname = {"human": "h.all", "mouse": "mh.all"}[species]
     hs = {"human": "Hs", "mouse": "Mm"}[species]
+    label = "MSigDB Hallmark " + species
 
-    # 1) manual fallback: any matching file dropped in data/raw/
+    # 1) cached or manually dropped file in data/raw/ (treated the same)
+    raw_dir = dl.raw
     if os.path.isdir(raw_dir):
         for n in sorted(os.listdir(raw_dir)):
             if n.startswith(fname + ".") and n.endswith("." + hs + ".symbols.gmt"):
-                log("using manual Hallmark file data/raw/" + n)
+                log(label + ": cached (data/raw/" + n + ")")
                 with open(os.path.join(raw_dir, n), "r", encoding="utf-8") as fh:
-                    return parse_gmt(fh.read()), n
-        # also accept exact simple name
-        simple = os.path.join(raw_dir, fname + "." + hs + ".symbols.gmt")
-        if os.path.isfile(simple):
-            with open(simple, "r", encoding="utf-8") as fh:
-                return parse_gmt(fh.read()), os.path.basename(simple)
+                    return parse_gmt(fh.read()), n, parse_release(n)
 
-    # 2) mirror auto-detect
+    # 2) mirror auto-detect + download (auth-wall sniff kept exactly as-is)
     rel = msigdb_detect_release(fetch_text)
     if not rel:
-        return None, None
+        return None, None, None
     url = MSIGDB_BASE + "/" + rel + "." + hs + "/" + fname + ".v" + rel + "." + hs + ".symbols.gmt"
-    log("trying MSigDB mirror " + url)
     try:
         text = fetch_text(url)
     except Exception as e:
-        log("MSigDB download failed: " + str(e))
-        return None, None
+        log(label + ": download failed " + str(e))
+        return None, None, None
     if not looks_like_gmt(text):
-        log("MSigDB response was not a GMT (likely auth wall)")
-        return None, None
-    return parse_gmt(text), os.path.basename(url)
+        log(label + ": response was not a GMT (likely auth wall)")
+        return None, None, None
+    log(label + ": downloaded " + human_size(len(text.encode("utf-8"))))
+    name = os.path.basename(url)
+    if dl.enabled:
+        os.makedirs(raw_dir, exist_ok=True)
+        atomic_write(os.path.join(raw_dir, name), text, mode="w")
+    return parse_gmt(text), name, rel
 
 
 def parse_gmt(text):
@@ -224,9 +269,9 @@ def write_json(path, obj):
     log("wrote " + os.path.relpath(path, ROOT))
 
 
-def build_species(species, want, raw_dir, sources):
+def build_species(species, want, dl, sources):
     log("=== building " + species + " ===")
-    geneid_to_symbol, coding_symbols, synonyms = load_gene_info(species)
+    geneid_to_symbol, coding_symbols, synonyms = load_gene_info(species, dl)
 
     symbols = []
     sym_to_idx = {}
@@ -236,18 +281,18 @@ def build_species(species, want, raw_dir, sources):
             symbols.append(s)
     coding_n = len(symbols)
 
-    id_to_name, name_to_id = load_reactome_names()
+    id_to_name, name_to_id = load_reactome_names(dl)
 
     collections = {}
     if "reactome" in want:
         if species == "human":
-            rt = reactome_human_from_gmt(name_to_id)
+            rt = reactome_human_from_gmt(name_to_id, dl)
         else:
-            rt = reactome_mouse_from_ncbi(geneid_to_symbol, id_to_name)
+            rt = reactome_mouse_from_ncbi(geneid_to_symbol, id_to_name, dl)
         collections["reactome"] = index_terms(rt, sym_to_idx, symbols, casefold=False)
 
     if "hallmark" in want:
-        ht, src = load_hallmark(species, raw_dir)
+        ht, src_file, src_rel = load_hallmark(species, dl)
         if ht is None:
             log("HALLMARK UNAVAILABLE for " + species + ".")
             log("Mirror appears to need auth. Download the GMT manually and drop it in data/raw/,")
@@ -255,7 +300,10 @@ def build_species(species, want, raw_dir, sources):
             log("then re-run. Stopping so nothing is guessed.")
             sys.exit(2)
         collections["hallmark"] = index_terms(ht, sym_to_idx, symbols, casefold=False)
-        sources["msigdb"]["version"] = src
+        if src_rel:
+            sources["msigdb"]["version"] = src_rel
+        if src_file:
+            sources["msigdb"]["files"].append(src_file)
 
     # alias map limited to symbols present in the table
     aliases = {}
@@ -279,6 +327,8 @@ def main():
     ap.add_argument("--species", nargs="+", default=["human", "mouse"])
     ap.add_argument("--collections", nargs="+", default=["hallmark", "reactome"])
     ap.add_argument("--raw", default=RAW)
+    ap.add_argument("--cache-raw", action="store_true",
+                    help="save downloads into data/raw/ and reuse them on later runs")
     ap.add_argument("--min", type=int, default=5, help="GO min term size (Stage 2)")
     ap.add_argument("--max", type=int, default=500, help="GO max term size (Stage 2)")
     ap.add_argument("--with-iea", action="store_true", help="GO include IEA (Stage 2)")
@@ -289,13 +339,15 @@ def main():
         log("GO build is Stage 2 and not yet implemented. Exiting.")
         sys.exit(2)
 
-    sources = {"reactome": {"version": "current"}, "msigdb": {"version": None},
+    sources = {"reactome": {"version": "current"}, "msigdb": {"version": None, "files": []},
                "go": {"release": None, "doi": None}}
+
+    dl = RawCache(args.raw, args.cache_raw)
 
     manifest_collections = []
     symbols_paths = {}
     for sp in args.species:
-        cols, coding_n = build_species(sp, set(args.collections), args.raw, sources)
+        cols, coding_n = build_species(sp, set(args.collections), dl, sources)
         symbols_paths[sp] = "data/" + sp + "/symbols.json"
         labels = {"hallmark": "Hallmark", "reactome": "Reactome"}
         for key, terms in cols.items():
