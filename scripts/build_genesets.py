@@ -375,7 +375,10 @@ def build_go_collections(godag, parent_map, namespaces, gaf_path, with_iea, mn, 
     ann = parse_gaf(gaf_path, godag, with_iea)
     term2genes = propagate(ann, parent_map, namespaces)
     out = {"go_bp": [], "go_mf": [], "go_cc": []}
-    for go_id, genes in term2genes.items():
+    # Emit terms in sorted GO-id order so output (and the downstream symbol
+    # append order) is deterministic regardless of set/dict iteration order.
+    for go_id in sorted(term2genes):
+        genes = term2genes[go_id]
         if len(genes) < mn or len(genes) > mx:
             continue
         ns = namespaces.get(go_id)
