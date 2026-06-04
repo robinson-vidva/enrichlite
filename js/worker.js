@@ -27,17 +27,24 @@ function buildIndex(symbols, aliases) {
 }
 
 // Resolve pasted tokens to gene indices within this species universe.
+// De-duplicates by normalized symbol so repeated tokens are not counted as
+// separate genes or conflated with unrecognized ones.
 function resolveQuery(tokens, symIndex) {
-  var recognized = new Set();
-  var dropped = [];
+  var seen = new Set();        // normalized tokens already counted
+  var recognized = new Set();  // matched gene indices
+  var dropped = [];            // unique unrecognized tokens (original form)
+  var duplicates = 0;
   for (var i = 0; i < tokens.length; i++) {
     var t = tokens[i];
     if (!t) continue;
-    var gi = symIndex.get(norm(t));
+    var key = norm(t);
+    if (seen.has(key)) { duplicates++; continue; }
+    seen.add(key);
+    var gi = symIndex.get(key);
     if (gi === undefined) dropped.push(t);
     else recognized.add(gi);
   }
-  return { recognized: recognized, dropped: dropped };
+  return { recognized: recognized, dropped: dropped, duplicates: duplicates, unique: seen.size };
 }
 
 function run(msg) {
@@ -138,8 +145,9 @@ function run(msg) {
     rows: rows,
     N: N,
     n: n,
-    queryTotal: tokens.length,
-    recognized: q.recognized.size,
+    uniqueGenes: q.unique,
+    recognized: q.unique - q.dropped.length,
+    duplicates: q.duplicates,
     dropped: q.dropped,
     bgMode: bgMode
   };

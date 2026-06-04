@@ -135,20 +135,21 @@ button.primary { background: var(--accent); color: #fff; border-color: var(--acc
 
 /* Horizontal scroll only inside the table, never the page. */
 .table-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
-table { border-collapse: collapse; font-size: 13px; min-width: 720px; width: 100%; }
-th, td { text-align: left; padding: 7px 9px; border-bottom: 1px solid var(--border); vertical-align: top; }
+table { border-collapse: collapse; font-size: 13px; min-width: 600px; width: 100%; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
 th { cursor: pointer; user-select: none; white-space: nowrap; background: #fafbfd; position: relative; }
 th[data-sort]:hover { color: var(--accent); }
 td.num, th[data-sort="K"], th[data-sort="k"], th[data-sort="fold"],
 th[data-sort="p"], th[data-sort="fdr"], th[data-sort="bonferroni"] { white-space: nowrap; }
 td.ns { white-space: nowrap; }
 /* Long text columns truncate with a tooltip instead of widening the table. */
-td.term { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+td.term { max-width: 210px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+td.ns { max-width: 130px; overflow: hidden; text-overflow: ellipsis; }
 /* Genes cell shows a short preview + "+N more"; full list is hidden until
    expanded (and is always in the title tooltip). Export keeps the full list. */
 td.genes {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
-  max-width: 360px; white-space: nowrap;
+  max-width: 260px; white-space: nowrap;
 }
 td.genes .gene-full { display: none; }
 td.genes.expanded { white-space: normal; }
@@ -176,7 +177,9 @@ th.sort-desc::after { border-top: 5px solid currentColor; }
 .viz-controls .toggle button { padding: 6px 14px; }
 .viz-dl { margin-left: auto; }
 .chart-wrap { width: 100%; overflow-x: auto; }
-.chart-wrap svg { max-width: 100%; height: auto; display: block; }
+/* The chart is rendered at the panel width (clamped) in JS, so it fills wide
+   screens; on narrow screens it keeps a minimum width and scrolls here. */
+.chart-wrap svg { display: block; }
 .empty-chart { color: var(--muted); padding: 16px 4px; }
 
 footer { padding: 18px 20px 40px; color: var(--muted); font-size: 13px; }

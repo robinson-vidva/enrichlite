@@ -18,7 +18,7 @@
     currentSvg: null
   };
 
-  var GENE_PREVIEW = 6;  // genes shown before "+N more" in the table
+  var GENE_PREVIEW = 4;  // genes shown before "+N more" in the table
 
   // NOTE: only one collection runs per analysis (single background universe,
   // single BH/Bonferroni family). Combining collections is a deliberate future
@@ -164,10 +164,15 @@
     var m = state.lastRunMeta || {};
     var sp = m.species ? m.species.charAt(0).toUpperCase() + m.species.slice(1) : "";
     var head = "<strong>" + sp + " | " + (m.collection || "") + "</strong> | ";
-    var html = head + '<span class="ok">recognized ' + res.recognized + "/" + res.queryTotal + "</span>";
+    var html = head + '<span class="ok">recognized ' + res.recognized + " of " + res.uniqueGenes +
+      " unique gene" + (res.uniqueGenes === 1 ? "" : "s") + "</span>";
+    if (res.duplicates) {
+      html += '<span class="muted"> (' + res.duplicates + " duplicate token" +
+        (res.duplicates === 1 ? "" : "s") + " ignored)</span>";
+    }
     html += " | n=" + res.n + " in universe | background N=" + res.N + " (" + bgLabel + ")";
     if (res.dropped.length) {
-      html += '<br><span class="warn">Dropped ' + res.dropped.length + ": " +
+      html += '<br><span class="warn">Unrecognized ' + res.dropped.length + ": " +
         res.dropped.slice(0, 25).join(", ") + (res.dropped.length > 25 ? " ..." : "") + "</span>";
     }
     setReport(html);
@@ -363,8 +368,8 @@
     });
   }
 
-  function buildBarSvg(rows) {
-    var W = 680, mL = 220, mR = 56, mT = 18, mB = 34, rowH = 22, barH = 14;
+  function buildBarSvg(rows, W) {
+    var mL = 220, mR = 56, mT = 18, mB = 34, rowH = 22, barH = 14;
     var H = mT + rows.length * rowH + mB;
     var plotW = W - mL - mR;
     var svg = newSvg(W, H);
@@ -402,8 +407,8 @@
     return "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")";
   }
 
-  function buildDotSvg(rows) {
-    var W = 680, mL = 220, mR = 150, mT = 18, mB = 40, rowH = 22;
+  function buildDotSvg(rows, W) {
+    var mL = 220, mR = 150, mT = 18, mB = 40, rowH = 22;
     var H = mT + rows.length * rowH + mB;
     var plotW = W - mL - mR;
     var svg = newSvg(W, H);
@@ -485,7 +490,12 @@
       return;
     }
     var top = rows.slice(0, state.topN);
-    var svg = state.chartType === "bar" ? buildBarSvg(top) : buildDotSvg(top);
+    // Size the chart to the panel width (clamped) so it fills the space on wide
+    // screens and scrolls inside its container on narrow ones; high enough
+    // intrinsic width keeps SVG/PNG export crisp.
+    var cw = el.chartWrap.clientWidth || 680;
+    var W = Math.max(560, Math.min(cw, 1100));
+    var svg = state.chartType === "bar" ? buildBarSvg(top, W) : buildDotSvg(top, W);
     el.chartWrap.innerHTML = "";
     el.chartWrap.appendChild(svg);
     state.currentSvg = svg;
@@ -643,6 +653,12 @@
     });
     el.dlSvg.addEventListener("click", downloadSvg);
     el.dlPng.addEventListener("click", downloadPng);
+    // Re-fit the chart to the panel width on resize (debounced).
+    var rzT;
+    window.addEventListener("resize", function () {
+      clearTimeout(rzT);
+      rzT = setTimeout(function () { if (state.lastResult) renderChart(); }, 150);
+    });
     Array.prototype.forEach.call(el.results.querySelectorAll("th[data-sort]"), function (th) {
       th.addEventListener("click", function () {
         var key = th.dataset.sort;
