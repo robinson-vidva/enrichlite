@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>enrichlite - methods</title>
+  <link rel="stylesheet" href="css/styles.css" />
+  <style>
+    .methods { max-width: 760px; }
+    .methods h2 { font-size: 19px; margin: 28px 0 6px; }
+    .methods h3 { font-size: 15px; margin: 16px 0 4px; color: var(--ink); }
+    .methods p, .methods li { font-size: 14.5px; }
+    .methods p { margin: 8px 0; }
+    .methods ul { margin: 8px 0; padding-left: 20px; }
+    .methods li { margin: 5px 0; }
+    .methods .lead { color: var(--ink); }
+    .methods .detail { color: var(--muted); }
+    .methods code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px;
+      background: #f1f3f8; padding: 1px 5px; border-radius: 4px;
+    }
+    .methods .eqn {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px;
+      background: #f7f8fa; border: 1px solid var(--border); border-radius: 6px;
+      padding: 10px 12px; margin: 10px 0; overflow-x: auto; white-space: nowrap;
+    }
+    .methods .caveats { border-left: 3px solid var(--warn-border); padding-left: 14px; }
+    .table-scroll { overflow-x: auto; margin: 10px 0; }
+    .methods table { border-collapse: collapse; font-size: 13px; min-width: 360px; }
+    .methods th, .methods td { text-align: left; padding: 6px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+    .methods th { background: #fafbfd; }
+    .methods td.n { text-align: right; }
+    .back-link { display: inline-block; margin-bottom: 10px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>enrichlite methods</h1>
+    <p class="tagline">How the analysis works, what the numbers mean, and where the data comes from.</p>
+  </header>
+
+  <main class="methods">
+    <a class="back-link" href="index.html">&lt; Back to the tool</a>
+
+    <h2>1. What it does</h2>
+    <p class="lead">
+      enrichlite runs over-representation analysis (ORA). You paste a list of genes; it finds
+      the gene sets, pathways, and Gene Ontology terms that your list overlaps more than you
+      would expect if the genes had been picked at random. The idea is simple: if your genes
+      cluster into "cell cycle" far more than chance would predict, that is a signal worth
+      noticing.
+    </p>
+    <p class="detail">
+      Everything runs in your browser. The gene-set data is downloaded once as static files and
+      the computation happens locally in a Web Worker. Your gene list is never uploaded; no data
+      leaves your machine.
+    </p>
+
+    <h2>2. The statistic</h2>
+    <p class="lead">
+      For each gene set, the question is: of my query genes, how many landed in this set, and is
+      that more than chance? enrichlite answers with a one-tailed hypergeometric test - the upper
+      tail, <code>P(X &gt;= k)</code> - the probability of seeing at least as large an overlap as
+      observed, drawing without replacement from the background.
+    </p>
+    <p class="detail">The contingency is defined by four numbers:</p>
+    <ul class="detail">
+      <li><code>N</code> - genes in the background universe</li>
+      <li><code>K</code> - genes in this term that fall within the universe</li>
+      <li><code>n</code> - query genes that fall within the universe</li>
+      <li><code>k</code> - the overlap (query genes that are in the term)</li>
+    </ul>
+    <p class="detail">
+      This is exactly the one-sided Fisher's exact test on the corresponding 2x2 table. The
+      effect size reported alongside the p-value is the fold enrichment:
+    </p>
+    <div class="eqn">fold enrichment = (k / n) / (K / N)</div>
+    <p class="detail">
+      A fold of 1 means the overlap is what you would expect by chance; larger means enriched.
+      The tail probability is summed in log space using a Lanczos approximation of the log-gamma
+      function (so binomial coefficients stay stable at universe sizes around 20,000), with the
+      sum accumulated via the probability-mass recurrence to avoid overflow.
+    </p>
+
+    <h2>3. Background / universe</h2>
+    <p class="lead">
+      The background is the pool of genes the test assumes your list was drawn from. It is the
+      single most consequential choice you make, because it sets what "by chance" means.
+    </p>
+    <p class="detail">Three options:</p>
+    <ul class="detail">
+      <li><strong>Annotated in collection (default)</strong> - the universe is every gene that has
+        any annotation in the selected collection. This is the conventional choice for ORA: a gene
+        with no annotation in the collection could never have been a hit, so it is excluded.</li>
+      <li><strong>All protein-coding</strong> - the universe is the full protein-coding gene count
+        for the species (human ~20,593; mouse ~26,310). This makes the universe larger and is
+        usually more permissive.</li>
+      <li><strong>Custom</strong> - you supply your own background gene list (for example, the
+        genes expressed/detected in your experiment).</li>
+    </ul>
+    <p class="detail">
+      Changing the background changes <code>N</code> (and which genes count toward <code>K</code>
+      and <code>n</code>), so it changes every p-value. A smaller, more specific universe generally
+      makes overlaps look more significant; a larger universe makes them look less so. The app
+      always shows the <code>N</code> it used. Per-collection annotated-universe sizes:
+    </p>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Collection</th><th>Human N</th><th>Mouse N</th></tr></thead>
+        <tbody>
+          <tr><td>Reactome</td><td class="n">11,963</td><td class="n">8,851</td></tr>
+          <tr><td>Hallmark</td><td class="n">4,384</td><td class="n">4,291</td></tr>
+          <tr><td>GO-BP</td><td class="n">17,318</td><td class="n">17,371</td></tr>
+          <tr><td>GO-MF</td><td class="n">15,274</td><td class="n">14,668</td></tr>
+          <tr><td>GO-CC</td><td class="n">10,789</td><td class="n">11,327</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2>4. Multiple testing</h2>
+    <p class="lead">
+      A collection contains hundreds or thousands of gene sets, and testing all of them inflates
+      the chance of false positives. enrichlite corrects for this and reports adjusted values.
+    </p>
+    <ul class="detail">
+      <li><strong>Benjamini-Hochberg FDR (default)</strong> - controls the expected proportion of
+        false positives among the terms you call significant. The default cutoff is
+        <code>FDR &lt; 0.05</code>.</li>
+      <li><strong>Bonferroni</strong> - controls the probability of any false positive at all;
+        much stricter, and conservative when many terms are tested.</li>
+    </ul>
+    <p class="detail">
+      The correction family is the set of terms tested in the current run. Because only one
+      collection is analysed at a time, the family is that collection's terms - not all collections
+      combined.
+    </p>
+
+    <h2>5. Data sources, versions, and licenses</h2>
+    <p class="lead">
+      All gene-set data comes from authoritative public sources, pinned to specific versions. None
+      of it is hand-curated or invented here.
+    </p>
+    <ul class="detail">
+      <li><strong>Gene Ontology</strong> - release 2026-05-19, concept DOI
+        <code>10.5281/zenodo.1205166</code>. License CC BY 4.0.</li>
+      <li><strong>MSigDB Hallmark</strong> - version 2026.1. License CC BY 4.0; attribution to the
+        Broad Institute, MIT, and the Regents of the University of California.</li>
+      <li><strong>Reactome</strong> - current release. License CC0.</li>
+    </ul>
+    <p class="detail">
+      Human and mouse are kept as entirely separate universes with separate symbol tables. Human
+      uses HGNC symbols (all upper-case, e.g. <code>BRAF</code>); mouse uses MGI symbols
+      (title-case, e.g. <code>Braf</code>). There is no on-the-fly ortholog conversion: a human
+      gene list is tested only against human sets, and likewise for mouse. Within a species,
+      matching is case-insensitive, so pasting <code>braf</code> still matches.
+    </p>
+
+    <h2>6. Gene Ontology specifics</h2>
+    <p class="lead">
+      GO terms are built from the ontology graph plus per-species annotation files, with the
+      standard filtering and propagation that ORA expects.
+    </p>
+    <ul class="detail">
+      <li>Ontology: <code>go-basic</code> (the filtered version safe for propagation), split into
+        the three namespaces GO-BP, GO-MF, GO-CC.</li>
+      <li>Annotations: the <code>goa_human</code> and <code>mgi</code> GAF files.</li>
+      <li>Evidence policy: annotations with evidence code <code>ND</code> are always dropped;
+        annotations carrying a <code>NOT</code> qualifier are dropped; electronic annotations
+        (<code>IEA</code>) are excluded by default.</li>
+      <li>True-path-rule propagation over <code>is_a</code> and <code>part_of</code>: a gene
+        annotated to a specific term also counts toward every ancestor of that term. Propagation
+        stays within a namespace.</li>
+      <li>Display size bounds: terms with between 5 and 500 genes (after propagation) are kept.</li>
+    </ul>
+
+    <h2>7. Reproducibility</h2>
+    <p class="lead">
+      The analysis is fully reproducible: the same input always gives the same output, and the
+      published data can be regenerated from the pinned sources.
+    </p>
+    <p class="detail">
+      A Python build script downloads the source files at the versions listed above, applies the
+      filtering and propagation described, and writes compact JSON. The build is deterministic -
+      rebuilding from the same cached sources produces byte-identical data files. The web app never
+      computes gene-set data; it only reads those static JSON files and runs the statistics in the
+      browser. Source code and the build script are in the repository:
+      <a href="https://github.com/robinson-vidva/enrichlite">github.com/robinson-vidva/enrichlite</a>.
+    </p>
+
+    <h2>8. Caveats</h2>
+    <div class="caveats detail">
+      <ul>
+        <li><strong>Small input lists are fragile.</strong> With only a handful of genes, an
+          enrichment often rests on a 1-2 gene overlap. Such results are unstable and should be
+          read with caution, not as firm conclusions.</li>
+        <li><strong>Background choice strongly affects significance.</strong> The same gene list
+          can look highly significant or not, depending on the universe. Choose a background that
+          reflects what could have been detected, and report it.</li>
+        <li><strong>The size filter is display-only.</strong> The min/max set-size filter on the
+          results table changes what is shown; it does not re-run the test or change any p-value or
+          FDR.</li>
+        <li><strong>ORA ignores ranking.</strong> Every query gene is treated equally; fold
+          changes, effect sizes, and ordering are not used. This is over-representation analysis,
+          not gene-set enrichment analysis (GSEA).</li>
+        <li><strong>Results reflect a snapshot.</strong> They depend on the data versions above and
+          on current annotation knowledge, which is incomplete and changes over time.</li>
+      </ul>
+    </div>
+  </main>
+
+  <footer>
+    <p class="muted">
+      Reactome: CC0. MSigDB Hallmark: CC BY 4.0 (Broad/MIT/UC). Gene Ontology: CC BY 4.0
+      (release 2026-05-19, DOI 10.5281/zenodo.1205166).
+      <a href="index.html">Back to the tool</a>
+    </p>
+  </footer>
+</body>
+</html>
