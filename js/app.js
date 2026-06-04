@@ -699,6 +699,80 @@
     });
   }
 
+  // Make the "?" helper badges reachable by tap and keyboard (not just hover).
+  // The native title is kept for desktop hover; a popover carries the same text
+  // for click/tap/focus, with screen-reader association and viewport clamping.
+  function wireHelpBadges() {
+    var pop = document.createElement("div");
+    pop.className = "help-pop hidden";
+    pop.id = "helpPopover";
+    pop.setAttribute("role", "tooltip");
+    document.body.appendChild(pop);
+    var openFor = null;
+
+    function place(badge) {
+      var r = badge.getBoundingClientRect();
+      var margin = 8;
+      var docW = document.documentElement.clientWidth;
+      var docH = document.documentElement.clientHeight;
+      var pw = pop.offsetWidth, ph = pop.offsetHeight;
+      var left = r.left;
+      left = Math.min(left, docW - pw - margin);
+      left = Math.max(margin, left);
+      var top = r.bottom + 6;
+      if (docH - r.bottom < ph + 14) top = r.top - ph - 6;  // flip above near bottom
+      pop.style.left = (left + window.scrollX) + "px";
+      pop.style.top = (top + window.scrollY) + "px";
+    }
+    function close() {
+      if (!openFor) return;
+      pop.classList.add("hidden");
+      openFor.setAttribute("aria-expanded", "false");
+      openFor.removeAttribute("aria-describedby");
+      openFor = null;
+    }
+    function open(badge) {
+      if (openFor && openFor !== badge) {
+        openFor.setAttribute("aria-expanded", "false");
+        openFor.removeAttribute("aria-describedby");
+      }
+      pop.textContent = badge.getAttribute("data-help") || "";
+      pop.classList.remove("hidden");
+      badge.setAttribute("aria-expanded", "true");
+      badge.setAttribute("aria-describedby", "helpPopover");
+      openFor = badge;
+      place(badge);
+    }
+
+    Array.prototype.forEach.call(document.querySelectorAll(".helpq"), function (b) {
+      b.setAttribute("data-help", b.getAttribute("title") || "");
+      b.setAttribute("tabindex", "0");
+      b.setAttribute("role", "button");
+      b.setAttribute("aria-label", "Help");
+      b.setAttribute("aria-expanded", "false");
+      b.addEventListener("click", function (e) {
+        e.preventDefault();        // don't activate the wrapping label/control
+        e.stopPropagation();
+        if (openFor === b) close(); else open(b);
+      });
+      b.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" || e.key === " " || e.key === "Spacebar") {
+          e.preventDefault();
+          if (openFor === b) close(); else open(b);
+        } else if (e.key === "Escape" && openFor === b) {
+          close(); b.focus();
+        }
+      });
+    });
+
+    document.addEventListener("click", function (e) {
+      if (openFor && !pop.contains(e.target) && !openFor.contains(e.target)) close();
+    });
+    document.addEventListener("keydown", function (e) { if (e.key === "Escape") close(); });
+    window.addEventListener("resize", function () { if (openFor) place(openFor); });
+    window.addEventListener("scroll", function () { if (openFor) place(openFor); }, true);
+  }
+
   function init(m) {
     state.manifest = m;
     VER = encodeURIComponent(String(m.version || "0"));
@@ -708,6 +782,7 @@
     populateCollections();
     renderAttribution();
     wireEvents();
+    wireHelpBadges();
     renderChart();
   }
 
