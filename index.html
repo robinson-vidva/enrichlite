@@ -4,7 +4,6 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>enrichlite - gene-set over-representation analysis</title>
-  <link rel="stylesheet" href="css/styles.css" />
 </head>
 <body>
   <header>
@@ -100,6 +99,27 @@
     </p>
   </footer>
 
-  <script src="js/app.js"></script>
+  <script>
+    // Bootstrap: load the manifest first (revalidated, never served stale),
+    // then load app.js versioned by the manifest token so a deploy cannot run
+    // stale code or data behind a CDN cache.
+    fetch("data/manifest.json", { cache: "no-cache" })
+      .then(function (r) { return r.json(); })
+      .then(function (m) {
+        window.__ENRICH_MANIFEST__ = m;
+        var v = encodeURIComponent(String(m.version || "0"));
+        var link = document.createElement("link");
+        link.rel = "stylesheet";
+        link.href = "css/styles.css?v=" + v;
+        document.head.appendChild(link);
+        var s = document.createElement("script");
+        s.src = "js/app.js?v=" + v;
+        document.body.appendChild(s);
+      })
+      .catch(function (e) {
+        document.getElementById("report").innerHTML =
+          '<span class="warn">Could not load data/manifest.json: ' + e.message + "</span>";
+      });
+  </script>
 </body>
 </html>

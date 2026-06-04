@@ -10,6 +10,7 @@ import os
 import re
 import sys
 import zipfile
+from datetime import datetime, timezone
 
 import requests
 
@@ -366,10 +367,11 @@ def main():
                 "path": "data/" + sp + "/" + key + ".json", "available": False, "N": 0
             })
 
-    manifest = {"demo": False, "symbols": symbols_paths,
+    version = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    manifest = {"demo": False, "version": version, "symbols": symbols_paths,
                 "collections": manifest_collections, "sources": sources}
     write_json(os.path.join(DATA, "manifest.json"), manifest)
-    log("done.")
+    log("done. version=" + version)
 
 
 if __name__ == "__main__":

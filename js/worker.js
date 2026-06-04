@@ -1,5 +1,6 @@
 // worker.js - runs ORA off the main thread.
-importScripts("stats.js");
+var _v = new URLSearchParams(self.location.search).get("v");
+importScripts("stats.js" + (_v ? "?v=" + encodeURIComponent(_v) : ""));
 
 var S = self.EnrichStats;
 

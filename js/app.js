@@ -12,7 +12,8 @@
     sortDir: 1
   };
 
-  var worker = new Worker("js/worker.js");
+  var worker = null;
+  var VER = "0";  // cache-bust token from manifest.version
 
   var el = {
     demoBanner: document.getElementById("demoBanner"),
@@ -39,6 +40,10 @@
       if (!r.ok) throw new Error("Failed to load " + path + " (" + r.status + ")");
       return r.json();
     });
+  }
+
+  function dataUrl(p) {
+    return p + (p.indexOf("?") < 0 ? "?" : "&") + "v=" + VER;
   }
 
   function tokenize(text) {
@@ -77,7 +82,7 @@
     var cacheKey = state.species + "/" + state.collectionKey;
     if (state.cache[cacheKey]) return Promise.resolve(state.cache[cacheKey]);
     var symPath = state.manifest.symbols[state.species];
-    return Promise.all([fetchJson(symPath), fetchJson(meta.path)]).then(function (res) {
+    return Promise.all([fetchJson(dataUrl(symPath)), fetchJson(dataUrl(meta.path))]).then(function (res) {
       var bundle = {
         symbols: res[0].symbols,
         aliases: res[0].aliases || null,
@@ -95,6 +100,8 @@
     var tokens = tokenize(el.genes.value);
     if (tokens.length === 0) { setReport('<span class="warn">Paste at least one gene symbol.</span>'); return; }
     el.run.disabled = true;
+    var rm = currentCollectionMeta();
+    state.lastRunMeta = { species: state.species, collection: rm ? rm.label : state.collectionKey };
     setReport("Loading collection and computing...");
     loadCollection().then(function (bundle) {
       var msg = {
@@ -113,7 +120,7 @@
     });
   }
 
-  worker.onmessage = function (e) {
+  function onWorkerMessage(e) {
     el.run.disabled = false;
     if (!e.data.ok) { setReport('<span class="warn">Error: ' + e.data.error + '</span>'); return; }
     state.lastResult = e.data.result;
@@ -121,12 +128,15 @@
     renderTable();
     el.dlCsv.disabled = false;
     el.dlJson.disabled = false;
-  };
+  }
 
   function renderReport(res) {
     var bgLabel = { annotated: "annotated in collection", coding: "all protein-coding", custom: "custom" }[res.bgMode];
-    var html = '<span class="ok">Recognized ' + res.recognized + " of " + res.queryTotal + " pasted</span>";
-    html += " | query in universe n=" + res.n + " | background N=" + res.N + " (" + bgLabel + ")";
+    var m = state.lastRunMeta || {};
+    var sp = m.species ? m.species.charAt(0).toUpperCase() + m.species.slice(1) : "";
+    var head = "<strong>" + sp + " | " + (m.collection || "") + "</strong> | ";
+    var html = head + '<span class="ok">recognized ' + res.recognized + "/" + res.queryTotal + "</span>";
+    html += " | n=" + res.n + " in universe | background N=" + res.N + " (" + bgLabel + ")";
     if (res.dropped.length) {
       html += '<br><span class="warn">Dropped ' + res.dropped.length + ": " +
         res.dropped.slice(0, 25).join(", ") + (res.dropped.length > 25 ? " ..." : "") + "</span>";
@@ -258,13 +268,24 @@
     });
   }
 
-  fetchJson("data/manifest.json").then(function (m) {
+  function init(m) {
     state.manifest = m;
+    VER = encodeURIComponent(String(m.version || "0"));
+    worker = new Worker("js/worker.js?v=" + VER);
+    worker.onmessage = onWorkerMessage;
     el.demoBanner.classList.toggle("hidden", !m.demo);
     populateCollections();
     renderAttribution();
     wireEvents();
-  }).catch(function (err) {
-    setReport('<span class="warn">Could not load data/manifest.json: ' + err.message + "</span>");
-  });
+  }
+
+  // Manifest is preloaded by the inline bootstrap in index.html (fetched with
+  // no-cache). Fall back to fetching it if app.js was loaded standalone.
+  if (window.__ENRICH_MANIFEST__) {
+    init(window.__ENRICH_MANIFEST__);
+  } else {
+    fetchJson("data/manifest.json").then(init).catch(function (err) {
+      setReport('<span class="warn">Could not load data/manifest.json: ' + err.message + "</span>");
+    });
+  }
 })();
