@@ -21,7 +21,7 @@
 
       <div class="controls">
         <div class="control">
-          <span class="ctl-label">Species</span>
+          <span class="ctl-label">Species<span class="helpq" title="Human and mouse are separate gene universes with separate symbol tables. Pick the species your gene list comes from. Symbols are matched case-insensitively within a species.">?</span></span>
           <div class="toggle" id="speciesToggle">
             <button data-species="human" class="active">Human</button>
             <button data-species="mouse">Mouse</button>
@@ -29,12 +29,12 @@
         </div>
 
         <div class="control">
-          <label for="collection">Collection</label>
+          <label for="collection">Collection<span class="helpq" title="The gene-set database to test your list against. Only one collection runs at a time for now.">?</span></label>
           <select id="collection"></select>
         </div>
 
         <div class="control">
-          <label for="background">Background</label>
+          <label for="background">Background<span class="helpq" title="The universe of genes the test compares against. 'Annotated in collection' = every gene that has any annotation in the selected collection. 'All protein-coding' uses the full coding gene count. Changing the background changes the p-values.">?</span></label>
           <select id="background">
             <option value="annotated">Annotated in collection</option>
             <option value="coding">All protein-coding</option>
@@ -43,12 +43,12 @@
         </div>
 
         <div class="control">
-          <label for="fdr">FDR threshold</label>
+          <label for="fdr">FDR threshold<span class="helpq" title="Significance cutoff applied after multiple-testing correction. Terms with an adjusted p-value below this are kept. Lower is stricter.">?</span></label>
           <input id="fdr" type="number" min="0" max="1" step="0.01" value="0.05" />
         </div>
 
         <div class="control">
-          <label for="adjust">Significance by</label>
+          <label for="adjust">Significance by<span class="helpq" title="Which multiple-testing correction decides significance: Benjamini-Hochberg FDR (controls the false-discovery rate, less strict) or Bonferroni (controls any false positive, most strict).">?</span></label>
           <select id="adjust">
             <option value="fdr">BH-FDR</option>
             <option value="bonferroni">Bonferroni</option>
@@ -82,12 +82,17 @@
         <div class="rc-group">
           <label for="pageSize">Rows per page</label>
           <select id="pageSize">
-            <option value="25">25</option>
-            <option value="50" selected>50</option>
+            <option value="25" selected>25</option>
+            <option value="50">50</option>
             <option value="100">100</option>
             <option value="all">All</option>
           </select>
         </div>
+      </div>
+
+      <div class="active-filters">
+        <span id="filterChips"></span>
+        <button id="clearFilters" type="button" class="link-btn">Clear filters</button>
       </div>
 
       <div class="table-wrap">

@@ -112,6 +112,27 @@ button.primary { background: var(--accent); color: #fff; border-color: var(--acc
 .rc-group .dash { color: var(--muted); }
 .help { border-bottom: 1px dotted var(--muted); cursor: help; }
 
+/* "?" helper badge next to control labels. */
+.helpq {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 14px; height: 14px; margin-left: 5px; border-radius: 50%;
+  border: 1px solid var(--border); color: var(--muted);
+  font-size: 10px; font-weight: 600; line-height: 1; cursor: help; vertical-align: middle;
+}
+.helpq:hover { color: var(--accent); border-color: var(--accent); }
+
+/* Active-filter chips + clear control. */
+.active-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
+.chip {
+  display: inline-block; padding: 2px 9px; border-radius: 999px;
+  background: #eef2fb; color: #33415c; font-size: 12px; border: 1px solid var(--border);
+}
+.link-btn {
+  border: none; background: none; color: var(--accent); padding: 2px 4px;
+  font-size: 13px; cursor: pointer; text-decoration: underline;
+}
+.link-btn:hover { color: #1b4fae; }
+
 /* Horizontal scroll only inside the table, never the page. */
 .table-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 table { border-collapse: collapse; font-size: 13px; min-width: 720px; width: 100%; }
@@ -123,10 +144,21 @@ th[data-sort="p"], th[data-sort="fdr"], th[data-sort="bonferroni"] { white-space
 td.ns { white-space: nowrap; }
 /* Long text columns truncate with a tooltip instead of widening the table. */
 td.term { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Genes cell shows a short preview + "+N more"; full list is hidden until
+   expanded (and is always in the title tooltip). Export keeps the full list. */
 td.genes {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
-  max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  max-width: 360px; white-space: nowrap;
 }
+td.genes .gene-full { display: none; }
+td.genes.expanded { white-space: normal; }
+td.genes.expanded .gene-preview { display: none; }
+td.genes.expanded .gene-full { display: inline; }
+td.genes .more {
+  border: none; background: none; color: var(--accent); cursor: pointer;
+  font-size: 11px; padding: 0 0 0 2px; white-space: nowrap;
+}
+td.genes .more:hover { text-decoration: underline; }
 tbody tr:hover { background: #f4f7fe; }
 
 /* Sort direction indicator drawn as a small triangle (no glyph). */

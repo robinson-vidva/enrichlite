@@ -12,8 +12,16 @@
     sortKey: "p",
     sortDir: 1,
     page: 1,
-    pageSize: 50        // number, or "all"
+    pageSize: 25        // number, or "all"
   };
+
+  var GENE_PREVIEW = 6;  // genes shown before "+N more" in the table
+
+  // NOTE: only one collection runs per analysis (single background universe,
+  // single BH/Bonferroni family). Combining collections is a deliberate future
+  // decision: it would redefine the background universe AND make the multiple-
+  // testing correction span every collection at once (inflating the family
+  // size and the correction). Decide that model before implementing it.
 
   var worker = null;
   var VER = "0";  // cache-bust token from manifest.version
@@ -41,7 +49,9 @@
     pageSize: document.getElementById("pageSize"),
     prevPage: document.getElementById("prevPage"),
     nextPage: document.getElementById("nextPage"),
-    showingInfo: document.getElementById("showingInfo")
+    showingInfo: document.getElementById("showingInfo"),
+    filterChips: document.getElementById("filterChips"),
+    clearFilters: document.getElementById("clearFilters")
   };
 
   function fetchJson(path) {
@@ -189,8 +199,22 @@
     return rows;
   }
 
+  function genesCell(genes) {
+    var full = genes.join(", ");
+    if (genes.length <= GENE_PREVIEW) {
+      return '<td class="genes">' + esc(full) + "</td>";
+    }
+    var preview = genes.slice(0, GENE_PREVIEW).join(", ");
+    var extra = genes.length - GENE_PREVIEW;
+    // Full list in title (hover) and in a hidden span revealed on expand;
+    // export still uses the full r.genes array, never this truncation.
+    return '<td class="genes" title="' + esc(full) + '">' +
+      '<span class="gene-preview">' + esc(preview) + "</span>" +
+      '<span class="gene-full">' + esc(full) + "</span>" +
+      ' <button type="button" class="more" data-extra="' + extra + '">+' + extra + " more</button></td>";
+  }
+
   function rowHtml(r) {
-    var genes = r.genes.join(", ");
     return "<tr>" +
       '<td class="term" title="' + esc(r.name) + '">' + esc(r.name) + "</td>" +
       '<td class="ns">' + esc(r.namespace) + "</td>" +
@@ -200,7 +224,7 @@
       '<td class="num">' + fmtP(r.p) + "</td>" +
       '<td class="num">' + fmtP(r.fdr) + "</td>" +
       '<td class="num">' + fmtP(r.bonferroni) + "</td>" +
-      '<td class="genes" title="' + esc(genes) + '">' + esc(genes) + "</td>" +
+      genesCell(r.genes) +
       "</tr>";
   }
 
@@ -230,6 +254,7 @@
     el.nextPage.disabled = state.page >= pages;
 
     renderSortIndicators();
+    renderActiveFilters();
   }
 
   function renderSortIndicators() {
@@ -239,6 +264,31 @@
         th.classList.add(state.sortDir === 1 ? "sort-asc" : "sort-desc");
       }
     });
+  }
+
+  var SORT_LABELS = {
+    name: "Term", namespace: "Namespace", K: "Size", k: "Overlap", fold: "Fold",
+    p: "P", fdr: "FDR", bonferroni: "Bonferroni"
+  };
+
+  function renderActiveFilters() {
+    var chips = [];
+    var sigLabel = el.adjust.value === "bonferroni" ? "Bonferroni" : "FDR";
+    chips.push(sigLabel + " < " + (parseFloat(el.fdr.value) || 0));
+
+    var mn = parseInt(el.sizeMin.value, 10);
+    var mx = parseInt(el.sizeMax.value, 10);
+    if (!isNaN(mn) && !isNaN(mx)) chips.push("size " + mn + "-" + mx);
+    else if (!isNaN(mn)) chips.push("size >= " + mn);
+    else if (!isNaN(mx)) chips.push("size <= " + mx);
+
+    chips.push("sorted by " + (SORT_LABELS[state.sortKey] || state.sortKey) +
+      " " + (state.sortDir === 1 ? "asc" : "desc"));
+    chips.push((state.pageSize === "all" ? "all" : state.pageSize) + " / page");
+
+    el.filterChips.innerHTML = chips.map(function (c) {
+      return '<span class="chip">' + esc(c) + "</span>";
+    }).join("");
   }
 
   function esc(s) {
@@ -326,6 +376,26 @@
     });
     el.prevPage.addEventListener("click", function () { state.page -= 1; renderTable(); });
     el.nextPage.addEventListener("click", function () { state.page += 1; renderTable(); });
+    el.clearFilters.addEventListener("click", function () {
+      // Reset size range, sort, and page size to defaults. Does not touch the
+      // FDR threshold/correction and does not re-run the worker.
+      el.sizeMin.value = "";
+      el.sizeMax.value = "";
+      el.pageSize.value = "25";
+      state.pageSize = 25;
+      state.sortKey = "p";
+      state.sortDir = 1;
+      state.page = 1;
+      renderTable();
+    });
+    // Expand/collapse a truncated genes cell.
+    el.tbody.addEventListener("click", function (e) {
+      var btn = e.target.closest(".more");
+      if (!btn) return;
+      var td = btn.closest("td.genes");
+      var expanded = td.classList.toggle("expanded");
+      btn.textContent = expanded ? "show less" : "+" + btn.dataset.extra + " more";
+    });
     el.dlCsv.addEventListener("click", downloadCsv);
     el.dlJson.addEventListener("click", downloadJson);
     Array.prototype.forEach.call(el.results.querySelectorAll("th[data-sort]"), function (th) {
