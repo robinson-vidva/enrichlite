@@ -71,22 +71,49 @@
     </section>
 
     <section class="panel">
-      <table id="results">
-        <thead>
-          <tr>
-            <th data-sort="name">Term</th>
-            <th data-sort="namespace">Namespace</th>
-            <th data-sort="K">Size</th>
-            <th data-sort="k">Overlap</th>
-            <th data-sort="fold">Fold</th>
-            <th data-sort="p">P</th>
-            <th data-sort="fdr">FDR</th>
-            <th data-sort="bonferroni">Bonferroni</th>
-            <th>Genes</th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
+      <div class="results-controls">
+        <div class="rc-group">
+          <label for="sizeMin">Set size filter</label>
+          <input id="sizeMin" type="number" min="0" placeholder="min" />
+          <span class="dash">-</span>
+          <input id="sizeMax" type="number" min="0" placeholder="max" />
+          <span class="muted help" title="Filters which loaded terms are shown by gene-set size (K). This is a display-time filter on results already computed, separate from the build-time size bounds (--min/--max) in build_genesets.py.">display filter</span>
+        </div>
+        <div class="rc-group">
+          <label for="pageSize">Rows per page</label>
+          <select id="pageSize">
+            <option value="25">25</option>
+            <option value="50" selected>50</option>
+            <option value="100">100</option>
+            <option value="all">All</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table id="results">
+          <thead>
+            <tr>
+              <th data-sort="name">Term</th>
+              <th data-sort="namespace">Namespace</th>
+              <th data-sort="K">Size</th>
+              <th data-sort="k">Overlap</th>
+              <th data-sort="fold">Fold</th>
+              <th data-sort="p">P</th>
+              <th data-sort="fdr">FDR</th>
+              <th data-sort="bonferroni">Bonferroni</th>
+              <th>Genes</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="pager">
+        <button id="prevPage" disabled>Prev</button>
+        <button id="nextPage" disabled>Next</button>
+        <span id="showingInfo" class="muted"></span>
+      </div>
       <p id="noResults" class="muted hidden">No enriched terms to show.</p>
     </section>
   </main>

@@ -8,8 +8,11 @@
     collectionKey: null,
     cache: {},          // "species/collection" -> {symbols, aliases, terms, ...}
     lastResult: null,
+    viewRows: [],       // full filtered+sorted set (paginated for display)
     sortKey: "p",
-    sortDir: 1
+    sortDir: 1,
+    page: 1,
+    pageSize: 50        // number, or "all"
   };
 
   var worker = null;
@@ -32,7 +35,13 @@
     results: document.getElementById("results"),
     tbody: document.querySelector("#results tbody"),
     noResults: document.getElementById("noResults"),
-    attrib: document.getElementById("attrib")
+    attrib: document.getElementById("attrib"),
+    sizeMin: document.getElementById("sizeMin"),
+    sizeMax: document.getElementById("sizeMax"),
+    pageSize: document.getElementById("pageSize"),
+    prevPage: document.getElementById("prevPage"),
+    nextPage: document.getElementById("nextPage"),
+    showingInfo: document.getElementById("showingInfo")
   };
 
   function fetchJson(path) {
@@ -124,6 +133,7 @@
     el.run.disabled = false;
     if (!e.data.ok) { setReport('<span class="warn">Error: ' + e.data.error + '</span>'); return; }
     state.lastResult = e.data.result;
+    state.page = 1;
     renderReport(e.data.result);
     renderTable();
     el.dlCsv.disabled = false;
@@ -150,36 +160,84 @@
     return row[key] <= thr;
   }
 
+  function passesSize(row) {
+    var mn = parseInt(el.sizeMin.value, 10);
+    var mx = parseInt(el.sizeMax.value, 10);
+    if (!isNaN(mn) && row.K < mn) return false;
+    if (!isNaN(mx) && row.K > mx) return false;
+    return true;
+  }
+
   function fmtP(x) {
     if (x === 0) return "0";
     if (x < 1e-4) return x.toExponential(2);
     return x.toFixed(4);
   }
 
-  function renderTable() {
-    if (!state.lastResult) return;
-    var rows = state.lastResult.rows.filter(passesThreshold);
+  // Full filtered + sorted result set (paginated only at render time).
+  function buildView() {
+    if (!state.lastResult) return [];
+    var rows = state.lastResult.rows.filter(function (r) {
+      return passesThreshold(r) && passesSize(r);
+    });
     var k = state.sortKey, dir = state.sortDir;
     rows.sort(function (a, b) {
       var av = a[k], bv = b[k];
       if (typeof av === "string") return dir * av.localeCompare(bv);
       return dir * (av - bv);
     });
-    el.tbody.innerHTML = "";
-    el.noResults.classList.toggle("hidden", rows.length > 0);
-    rows.forEach(function (r) {
-      var tr = document.createElement("tr");
-      tr.innerHTML =
-        "<td>" + esc(r.name) + "</td>" +
-        "<td>" + esc(r.namespace) + "</td>" +
-        "<td>" + r.K + "</td>" +
-        "<td>" + r.k + "</td>" +
-        "<td>" + r.fold.toFixed(2) + "</td>" +
-        "<td>" + fmtP(r.p) + "</td>" +
-        "<td>" + fmtP(r.fdr) + "</td>" +
-        "<td>" + fmtP(r.bonferroni) + "</td>" +
-        '<td class="genes">' + esc(r.genes.join(", ")) + "</td>";
-      el.tbody.appendChild(tr);
+    return rows;
+  }
+
+  function rowHtml(r) {
+    var genes = r.genes.join(", ");
+    return "<tr>" +
+      '<td class="term" title="' + esc(r.name) + '">' + esc(r.name) + "</td>" +
+      '<td class="ns">' + esc(r.namespace) + "</td>" +
+      '<td class="num">' + r.K + "</td>" +
+      '<td class="num">' + r.k + "</td>" +
+      '<td class="num">' + r.fold.toFixed(2) + "</td>" +
+      '<td class="num">' + fmtP(r.p) + "</td>" +
+      '<td class="num">' + fmtP(r.fdr) + "</td>" +
+      '<td class="num">' + fmtP(r.bonferroni) + "</td>" +
+      '<td class="genes" title="' + esc(genes) + '">' + esc(genes) + "</td>" +
+      "</tr>";
+  }
+
+  function renderTable() {
+    if (!state.lastResult) return;
+    var rows = buildView();
+    state.viewRows = rows;
+    var total = rows.length;
+    el.noResults.classList.toggle("hidden", total > 0);
+
+    var size = state.pageSize === "all" ? total : state.pageSize;
+    var pages = size > 0 ? Math.ceil(total / size) : 1;
+    if (state.page > pages) state.page = pages || 1;
+    if (state.page < 1) state.page = 1;
+    var start = size > 0 ? (state.page - 1) * size : 0;
+    var end = size > 0 ? Math.min(start + size, total) : total;
+
+    var html = "";
+    for (var i = start; i < end; i++) html += rowHtml(rows[i]);
+    el.tbody.innerHTML = html;
+
+    var shown = total === 0 ? "0 of 0 terms" :
+      (start + 1) + "-" + end + " of " + total + " terms";
+    el.showingInfo.textContent = "Showing " + shown +
+      (pages > 1 ? "  (page " + state.page + " of " + pages + ")" : "");
+    el.prevPage.disabled = state.page <= 1;
+    el.nextPage.disabled = state.page >= pages;
+
+    renderSortIndicators();
+  }
+
+  function renderSortIndicators() {
+    Array.prototype.forEach.call(el.results.querySelectorAll("th[data-sort]"), function (th) {
+      th.classList.remove("sort-asc", "sort-desc");
+      if (th.dataset.sort === state.sortKey) {
+        th.classList.add(state.sortDir === 1 ? "sort-asc" : "sort-desc");
+      }
     });
   }
 
@@ -189,9 +247,10 @@
     });
   }
 
-  // Export uses the threshold-filtered, currently sorted view.
+  // Export uses the full filtered + sorted view (all pages, not just the
+  // current page).
   function visibleRows() {
-    return state.lastResult.rows.filter(passesThreshold);
+    return buildView();
   }
 
   function downloadCsv() {
@@ -254,8 +313,19 @@
       el.customBgWrap.classList.toggle("hidden", el.background.value !== "custom");
     });
     el.run.addEventListener("click", run);
-    el.fdr.addEventListener("change", renderTable);
-    el.adjust.addEventListener("change", renderTable);
+    // Filter/sort changes reset to page 1; pagination keeps the page.
+    var repage = function () { state.page = 1; renderTable(); };
+    el.fdr.addEventListener("change", repage);
+    el.adjust.addEventListener("change", repage);
+    el.sizeMin.addEventListener("input", repage);
+    el.sizeMax.addEventListener("input", repage);
+    el.pageSize.addEventListener("change", function () {
+      var v = el.pageSize.value;
+      state.pageSize = v === "all" ? "all" : parseInt(v, 10);
+      repage();
+    });
+    el.prevPage.addEventListener("click", function () { state.page -= 1; renderTable(); });
+    el.nextPage.addEventListener("click", function () { state.page += 1; renderTable(); });
     el.dlCsv.addEventListener("click", downloadCsv);
     el.dlJson.addEventListener("click", downloadJson);
     Array.prototype.forEach.call(el.results.querySelectorAll("th[data-sort]"), function (th) {
@@ -263,6 +333,7 @@
         var key = th.dataset.sort;
         if (state.sortKey === key) state.sortDir *= -1;
         else { state.sortKey = key; state.sortDir = 1; }
+        state.page = 1;
         renderTable();
       });
     });

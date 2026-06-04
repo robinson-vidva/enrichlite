@@ -98,16 +98,51 @@ button.primary { background: var(--accent); color: #fff; border-color: var(--acc
 .report .ok { color: #1c7a3d; }
 .report .warn { color: #b9651b; }
 
-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.results-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  align-items: flex-end;
+  margin-bottom: 12px;
+}
+.rc-group { display: flex; align-items: center; gap: 6px; }
+.rc-group label { margin-bottom: 0; }
+.rc-group input[type="number"] { width: 72px; }
+.rc-group select { width: auto; }
+.rc-group .dash { color: var(--muted); }
+.help { border-bottom: 1px dotted var(--muted); cursor: help; }
+
+/* Horizontal scroll only inside the table, never the page. */
+.table-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+table { border-collapse: collapse; font-size: 13px; min-width: 720px; width: 100%; }
 th, td { text-align: left; padding: 7px 9px; border-bottom: 1px solid var(--border); vertical-align: top; }
-th { cursor: pointer; user-select: none; white-space: nowrap; background: #fafbfd; }
+th { cursor: pointer; user-select: none; white-space: nowrap; background: #fafbfd; position: relative; }
 th[data-sort]:hover { color: var(--accent); }
-td.genes { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; max-width: 280px; }
+td.num, th[data-sort="K"], th[data-sort="k"], th[data-sort="fold"],
+th[data-sort="p"], th[data-sort="fdr"], th[data-sort="bonferroni"] { white-space: nowrap; }
+td.ns { white-space: nowrap; }
+/* Long text columns truncate with a tooltip instead of widening the table. */
+td.term { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+td.genes {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
+  max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 tbody tr:hover { background: #f4f7fe; }
+
+/* Sort direction indicator drawn as a small triangle (no glyph). */
+th.sort-asc::after, th.sort-desc::after {
+  content: ""; display: inline-block; margin-left: 6px;
+  border-left: 4px solid transparent; border-right: 4px solid transparent;
+}
+th.sort-asc::after { border-bottom: 5px solid currentColor; }
+th.sort-desc::after { border-top: 5px solid currentColor; }
+
+.pager { display: flex; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
 
 footer { padding: 18px 20px 40px; color: var(--muted); font-size: 13px; }
 footer a { color: var(--accent); }
 
 @media (max-width: 640px) {
-  td.genes { max-width: 140px; }
+  td.term { max-width: 200px; }
+  td.genes { max-width: 160px; }
 }
