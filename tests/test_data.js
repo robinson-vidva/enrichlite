@@ -87,5 +87,28 @@ ok("Reactome: >=1 significant term at FDR<0.05", sig.length > 0, sig.length + " 
 ok("Reactome: a RAF/MAPK/ERK term is significant", mapk.length > 0,
    mapk.slice(0, 3).map(function (r) { return r.name; }).join("; "));
 
+// 6) GO checks (only when Stage 2 GO data is present; guarded so this stays
+// green before GO is built).
+if (fs.existsSync(path.join(ROOT, "data/human/go_bp.json"))) {
+  var goBp = L("data/human/go_bp.json");
+  var goUni = universe(goBp);
+  ok("human GO-BP has thousands of terms", goBp.terms.length > 2000, "terms=" + goBp.terms.length);
+  ok("human GO-BP universe sane (>5000 genes)", goUni.size > 5000, "size=" + goUni.size);
+  var gs = goBp.terms.map(function (t) { return t.genes.length; });
+  ok("GO-BP terms within size bounds [5,500]",
+     Math.min.apply(null, gs) >= 5 && Math.max.apply(null, gs) <= 500,
+     "min=" + Math.min.apply(null, gs) + " max=" + Math.max.apply(null, gs));
+  var goMeta = man.collections.find(function (c) {
+    return c.species === "human" && c.key === "go_bp" && c.available;
+  });
+  ok("manifest go_bp available", !!goMeta);
+  // namespace tag is BP only in the BP file
+  ok("GO-BP file holds only BP terms",
+     goBp.terms.every(function (t) { return t.namespace === "GO-BP"; }));
+  // manifest carries a GO release date for the footer
+  ok("manifest GO release populated", !!(man.sources.go && man.sources.go.release),
+     String(man.sources.go && man.sources.go.release));
+}
+
 console.log(fails === 0 ? "\nALL DATA TESTS PASSED" : "\n" + fails + " TEST(S) FAILED");
 process.exit(fails === 0 ? 0 : 1);

@@ -293,7 +293,7 @@
   function renderAttribution() {
     var s = state.manifest.sources || {};
     var parts = [];
-    if (s.go) parts.push("GO release " + (s.go.release || "n/a") + (s.go.doi ? " (DOI " + s.go.doi + ")" : ""));
+    if (s.go) parts.push("GO release " + (s.go.release || "n/a") + (s.go.doi ? " (DOI: " + s.go.doi + ")" : ""));
     if (s.msigdb) parts.push("MSigDB " + (s.msigdb.version || "n/a"));
     if (s.reactome) parts.push("Reactome " + (s.reactome.version || "n/a"));
     el.attrib.textContent = parts.length ? "Data: " + parts.join(" | ") : "";

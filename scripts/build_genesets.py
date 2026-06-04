@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # build_genesets.py - download sources and emit compact index-based JSON.
-# Stage 1: Hallmark + Reactome for human and mouse. GO is Stage 2 (stubbed).
+# Hallmark + Reactome + GO (BP/MF/CC) for human and mouse.
 
 import argparse
 import gzip
@@ -8,7 +8,9 @@ import io
 import json
 import os
 import re
+import shutil
 import sys
+import tempfile
 import zipfile
 from datetime import datetime, timezone
 
@@ -26,8 +28,26 @@ GENEINFO = {
     "mouse": "https://ftp.ncbi.nlm.nih.gov/gene/DATA/GENE_INFO/Mammalia/Mus_musculus.gene_info.gz",
 }
 MSIGDB_BASE = "https://data.broadinstitute.org/gsea-msigdb/msigdb/release"
+GO_OBO = "https://current.geneontology.org/ontology/go-basic.obo"
+GAF = {
+    "human": "https://current.geneontology.org/annotations/goa_human.gaf.gz",
+    "mouse": "https://current.geneontology.org/annotations/mgi.gaf.gz",
+}
+# GO concept DOI (all-versions, not release-specific). The OBO header carries
+# no DOI, so this is intentionally set rather than parsed.
+GO_CONCEPT_DOI = "10.5281/zenodo.1205166"
 SPECIES_TAX = {"human": "9606", "mouse": "10090"}
 REACTOME_PREFIX = {"human": "R-HSA-", "mouse": "R-MMU-"}
+GO_NS = {
+    "biological_process": ("go_bp", "GO-BP"),
+    "molecular_function": ("go_mf", "GO-MF"),
+    "cellular_component": ("go_cc", "GO-CC"),
+}
+LABELS = {
+    "hallmark": "Hallmark", "reactome": "Reactome",
+    "go_bp": "GO-BP", "go_mf": "GO-MF", "go_cc": "GO-CC",
+    "go_bp_iea": "GO-BP (+IEA)", "go_mf_iea": "GO-MF (+IEA)", "go_cc_iea": "GO-CC (+IEA)",
+}
 
 
 def log(msg):
@@ -65,6 +85,7 @@ class RawCache:
     def __init__(self, raw_dir, enabled):
         self.raw = raw_dir
         self.enabled = enabled
+        self._tmp = None
 
     def get_bytes(self, url, fname, label):
         path = os.path.join(self.raw, fname)
@@ -82,6 +103,31 @@ class RawCache:
 
     def get_text(self, url, fname, label):
         return self.get_bytes(url, fname, label).decode("utf-8", "replace")
+
+    # Returns a filesystem path (for tools like goatools that need a file).
+    def get_path(self, url, fname, label):
+        if self.enabled:
+            os.makedirs(self.raw, exist_ok=True)
+            path = os.path.join(self.raw, fname)
+            if os.path.isfile(path):
+                log(label + ": cached (" + os.path.relpath(path, ROOT) + ")")
+                return path
+            data = fetch_bytes(url)
+            log(label + ": downloaded " + human_size(len(data)))
+            atomic_write(path, data)
+            return path
+        if self._tmp is None:
+            self._tmp = tempfile.mkdtemp(prefix="enrichlite_")
+        data = fetch_bytes(url)
+        log(label + ": downloaded " + human_size(len(data)))
+        path = os.path.join(self._tmp, fname)
+        atomic_write(path, data)
+        return path
+
+    def cleanup(self):
+        if self._tmp:
+            shutil.rmtree(self._tmp, ignore_errors=True)
+            self._tmp = None
 
 
 # --- gene_info: symbol table, protein-coding count, alias map ---
@@ -244,6 +290,122 @@ def parse_gmt(text):
     return terms
 
 
+# --- Gene Ontology ---
+
+def keep_annotation(qualifier, evidence, with_iea):
+    # Drop ND always; drop NOT-qualified (pipe-delimited token, not substring);
+    # drop IEA unless explicitly included.
+    if evidence == "ND":
+        return False
+    if "NOT" in (qualifier.split("|") if qualifier else []):
+        return False
+    if not with_iea and evidence == "IEA":
+        return False
+    return True
+
+
+def build_parent_map(godag):
+    # parent_map: term -> set of direct parents over is_a + part_of.
+    # namespaces: term -> namespace. Both keyed by primary GO id.
+    parent_map = {}
+    namespaces = {}
+    for term in godag.values():
+        pid = term.item_id
+        if pid in parent_map:
+            continue
+        namespaces[pid] = term.namespace
+        parents = set(p.item_id for p in term.parents)
+        rel = getattr(term, "relationship", {}) or {}
+        for p in rel.get("part_of", set()):
+            parents.add(p.item_id)
+        parent_map[pid] = parents
+    return parent_map, namespaces
+
+
+def ancestors(term, parent_map, namespaces, cache):
+    # All ancestors reachable while staying within the term's own namespace.
+    if term in cache:
+        return cache[term]
+    base = namespaces.get(term)
+    res = set()
+    for p in parent_map.get(term, ()):
+        if namespaces.get(p) != base:
+            continue
+        res.add(p)
+        res |= ancestors(p, parent_map, namespaces, cache)
+    cache[term] = res
+    return res
+
+
+def propagate(annotations, parent_map, namespaces):
+    # True-path rule: a gene annotated to a term counts for that term and all
+    # of its (same-namespace) ancestors.
+    cache = {}
+    term2genes = {}
+    for symbol, go_id in annotations:
+        if go_id not in namespaces:
+            continue
+        targets = ancestors(go_id, parent_map, namespaces, cache) | {go_id}
+        for t in targets:
+            term2genes.setdefault(t, set()).add(symbol)
+    return term2genes
+
+
+def parse_gaf(path, godag, with_iea):
+    # GAF 2.2: symbol col3, qualifier col4, GO ID col5, evidence col7, aspect col9.
+    ann = []
+    with gzip.open(path, "rt", encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            if not line or line[0] == "!":
+                continue
+            f = line.rstrip("\n").split("\t")
+            if len(f) < 9:
+                continue
+            symbol, qualifier, go_raw, evidence = f[2], f[3], f[4], f[6]
+            if not keep_annotation(qualifier, evidence, with_iea):
+                continue
+            term = godag.get(go_raw)
+            if term is None:
+                continue
+            ann.append((symbol, term.item_id))
+    return ann
+
+
+def build_go_collections(godag, parent_map, namespaces, gaf_path, with_iea, mn, mx):
+    ann = parse_gaf(gaf_path, godag, with_iea)
+    term2genes = propagate(ann, parent_map, namespaces)
+    out = {"go_bp": [], "go_mf": [], "go_cc": []}
+    for go_id, genes in term2genes.items():
+        if len(genes) < mn or len(genes) > mx:
+            continue
+        ns = namespaces.get(go_id)
+        if ns not in GO_NS:
+            continue
+        key = GO_NS[ns][0]
+        term = godag.get(go_id)
+        out[key].append({"id": go_id, "name": term.name, "namespace": GO_NS[ns][1],
+                         "symbols": sorted(genes)})
+    return out
+
+
+def parse_obo_meta(obo_path):
+    # Release date from data-version; Zenodo DOI only if present (never guessed).
+    release = None
+    doi = None
+    with open(obo_path, "r", encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            if line.startswith("[Term]"):
+                break
+            if line.startswith("data-version:"):
+                v = line.split(":", 1)[1].strip()
+                m = re.search(r"(\d{4}-\d{2}-\d{2})", v)
+                release = m.group(1) if m else v
+            m = re.search(r"(10\.5281/zenodo\.\d+)", line)
+            if m:
+                doi = m.group(1)
+    return release, doi
+
+
 # --- assembly ---
 
 def index_terms(terms, sym_to_idx, symbols, casefold):
@@ -270,7 +432,7 @@ def write_json(path, obj):
     log("wrote " + os.path.relpath(path, ROOT))
 
 
-def build_species(species, want, dl, sources):
+def build_species(species, want, dl, sources, go_ctx=None):
     log("=== building " + species + " ===")
     geneid_to_symbol, coding_symbols, synonyms = load_gene_info(species, dl)
 
@@ -306,6 +468,19 @@ def build_species(species, want, dl, sources):
         if src_file:
             sources["msigdb"]["files"].append(src_file)
 
+    if go_ctx:
+        gaf_path = dl.get_path(GAF[species], os.path.basename(GAF[species]), "GAF " + species)
+        go_cols = build_go_collections(go_ctx["godag"], go_ctx["pm"], go_ctx["ns"], gaf_path,
+                                       False, go_ctx["min"], go_ctx["max"])
+        for key in ("go_bp", "go_mf", "go_cc"):
+            collections[key] = index_terms(go_cols[key], sym_to_idx, symbols, casefold=False)
+            log(species + " " + key + ": " + str(len(go_cols[key])) + " terms")
+        if go_ctx["with_iea"]:
+            iea = build_go_collections(go_ctx["godag"], go_ctx["pm"], go_ctx["ns"], gaf_path,
+                                       True, go_ctx["min"], go_ctx["max"])
+            for key in ("go_bp", "go_mf", "go_cc"):
+                collections[key + "_iea"] = index_terms(iea[key], sym_to_idx, symbols, casefold=False)
+
     # alias map limited to symbols present in the table
     aliases = {}
     for syn, sym in synonyms.items():
@@ -330,47 +505,64 @@ def main():
     ap.add_argument("--raw", default=RAW)
     ap.add_argument("--cache-raw", action="store_true",
                     help="save downloads into data/raw/ and reuse them on later runs")
-    ap.add_argument("--min", type=int, default=5, help="GO min term size (Stage 2)")
-    ap.add_argument("--max", type=int, default=500, help="GO max term size (Stage 2)")
-    ap.add_argument("--with-iea", action="store_true", help="GO include IEA (Stage 2)")
-    ap.add_argument("--go", action="store_true", help="build GO collections (Stage 2, not yet implemented)")
+    ap.add_argument("--min", type=int, default=5, help="GO min term size")
+    ap.add_argument("--max", type=int, default=500, help="GO max term size")
+    ap.add_argument("--with-iea", action="store_true", help="also emit IEA-inclusive GO variants")
+    ap.add_argument("--go", action="store_true", help="build GO collections (full rebuild)")
     args = ap.parse_args()
-
-    if args.go:
-        log("GO build is Stage 2 and not yet implemented. Exiting.")
-        sys.exit(2)
 
     sources = {"reactome": {"version": "current"}, "msigdb": {"version": None, "files": []},
                "go": {"release": None, "doi": None}}
 
     dl = RawCache(args.raw, args.cache_raw)
 
+    go_ctx = None
+    if args.go:
+        from goatools.obo_parser import GODag
+        obo_path = dl.get_path(GO_OBO, "go-basic.obo", "GO ontology (go-basic.obo)")
+        godag = GODag(obo_path, optional_attrs={"relationship"}, prt=None)
+        pm, ns = build_parent_map(godag)
+        release, doi = parse_obo_meta(obo_path)
+        sources["go"]["release"] = release
+        # OBO has no DOI; set the GO concept DOI intentionally.
+        sources["go"]["doi"] = doi or GO_CONCEPT_DOI
+        log("GO release=" + str(release) + " doi=" + str(sources["go"]["doi"]))
+        go_ctx = {"godag": godag, "pm": pm, "ns": ns,
+                  "min": args.min, "max": args.max, "with_iea": args.with_iea}
+
     manifest_collections = []
     symbols_paths = {}
+    coding_counts = {}
+    built = {}
     for sp in args.species:
-        cols, coding_n = build_species(sp, set(args.collections), dl, sources)
+        cols, coding_n = build_species(sp, set(args.collections), dl, sources, go_ctx)
+        built[sp] = cols
+        coding_counts[sp] = coding_n
         symbols_paths[sp] = "data/" + sp + "/symbols.json"
-        labels = {"hallmark": "Hallmark", "reactome": "Reactome"}
         for key, terms in cols.items():
             uni = set()
             for t in terms:
                 uni.update(t["genes"])
             manifest_collections.append({
-                "key": key, "label": labels.get(key, key), "species": sp,
+                "key": key, "label": LABELS.get(key, key), "species": sp,
                 "path": "data/" + sp + "/" + key + ".json", "available": True, "N": len(uni)
             })
-    # keep GO placeholders visible but unavailable
+    # GO placeholders for namespaces not built this run (keep dropdown stable)
     for sp in args.species:
         for key, label in [("go_bp", "GO-BP"), ("go_mf", "GO-MF"), ("go_cc", "GO-CC")]:
-            manifest_collections.append({
-                "key": key, "label": label, "species": sp,
-                "path": "data/" + sp + "/" + key + ".json", "available": False, "N": 0
-            })
+            if key not in built[sp]:
+                manifest_collections.append({
+                    "key": key, "label": label, "species": sp,
+                    "path": "data/" + sp + "/" + key + ".json", "available": False, "N": 0
+                })
 
     version = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     manifest = {"demo": False, "version": version, "symbols": symbols_paths,
                 "collections": manifest_collections, "sources": sources}
     write_json(os.path.join(DATA, "manifest.json"), manifest)
+    dl.cleanup()
+    for sp in args.species:
+        log("codingN " + sp + "=" + str(coding_counts[sp]))
     log("done. version=" + version)
 
 
