@@ -27,11 +27,22 @@ https://robinson-vidva.github.io/enrichlite/).
 - Results table: sortable columns, pagination, and display-time filters (size
   range, min fold, min overlap, term-name search) that also drive the charts and
   exports.
-- Charts (hand-rolled SVG, no dependency): dot plot and bar plot, top-N selector,
-  colorblind-safe FDR colormaps, SVG and PNG export.
+- Redundancy collapse: optionally group terms that are significant because of the
+  same query genes (greedy, by overlap-gene containment at a chosen threshold) and
+  show one representative per group with the collapsed terms expandable. Helps with
+  GO parent/child redundancy; purely display-time (never recomputes statistics).
+- Charts (hand-rolled SVG, no dependency): dot plot, bar plot, and a GO hierarchy
+  tree view, with a top-N selector, colorblind-safe FDR colormaps, and SVG / PNG
+  export.
+- GO hierarchy tree (GO collections only): arranges the significant terms by their
+  is_a / part_of relationships as a collapsible indented outline, colored by FDR
+  and sized by overlap. Solid edges are direct GO parents; dashed edges mark an
+  ancestor with intervening non-significant terms (click to splice them in as
+  faded nodes); displayed roots are flagged as not the ontology roots, since broad
+  terms above the size cap are not shipped. See the tree-data note below.
 - Auto-generated, copy-pasteable figure legend and methods paragraph built from
   the actual run (records the test, background + N, correction, data versions,
-  and whether IEA was included).
+  whether IEA was included, and any collapse / tree view in use).
 - Exports: CSV / JSON / copy-as-TSV, all with a provenance line; shareable
   permalink that encodes and restores the full analysis state in the URL hash.
 
@@ -62,6 +73,12 @@ Build flags:
   only Hallmark + Reactome are built.
 - `--with-iea` additionally emits the IEA-included GO variants
   (`go_*_iea.json`); the default no-IEA variants are always built.
+- The GO build also emits a per-variant reduced hierarchy for the tree view
+  (`go_*_tree.json`, plus `go_*_iea_tree.json` under `--with-iea`): index-based
+  nearest-shipped-ancestor parents parallel to each collection's terms. Because
+  propagated gene counts are monotone up the DAG and terms are size-bounded, every
+  edge is a true direct GO parent; the build asserts this (no edge ever hides an
+  omitted intermediate between a shipped term and its nearest shipped ancestor).
 - `--cache-raw` saves every downloaded source into `data/raw/` and reuses it on
   later runs (and prints downloaded-vs-cached per source). Clear with
   `rm -rf data/raw/`.
@@ -85,6 +102,7 @@ rather than guessing.
 node tests/test_stats.js           # hypergeometric / BH / Bonferroni numerics
 node tests/test_data.js            # built-data + per-collection sanity guards
 python3 tests/test_propagation.py  # GO true-path propagation, namespace isolation, GAF filtering
+python3 tests/test_tree.py         # GO tree-data invariants (valid/acyclic parents, skipE==0, roots)
 ```
 
 ## Project layout
@@ -98,14 +116,17 @@ js/app.js                  UI controller: state, table, charts, exports, permali
 images/Preview.png         favicon / og:image
 data/                      committed gene-set JSON + manifest (built artifacts)
 scripts/build_genesets.py  the build pipeline
-tests/                     stats, data, and propagation tests
+tests/                     stats, data, propagation, and tree-data tests
 ```
 
 Data format: per species, `symbols.json` holds the unique symbol table (index =
 gene id) plus `codingN` and an alias map; each collection file lists terms with
-`genes` as integer indices into `symbols.json`. `manifest.json` lists the
-collections (GO collections carry their `iea` variant as a sub-entry), the source
-versions, and a build version token used for cache-busting.
+`genes` as integer indices into `symbols.json`. Each GO collection also ships a
+`*_tree.json` whose `parents` array is parallel to that collection's terms and
+gives each term's nearest-shipped-ancestor indices (loaded on demand, only when
+the tree view is opened). `manifest.json` lists the collections (GO collections
+carry their `iea` variant as a sub-entry and a `tree` path), the source versions,
+and a build version token used for cache-busting.
 
 ## Data sources, versions, and licenses
 
