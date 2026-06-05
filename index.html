@@ -3,7 +3,23 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>enrichlite - gene-set over-representation analysis</title>
+  <title>enrichlite - client-side gene-set enrichment</title>
+  <meta name="description" content="Free, fully client-side gene-set over-representation analysis (ORA) for human and mouse against GO, Reactome, and MSigDB Hallmark. Runs entirely in your browser; no data leaves your machine." />
+  <meta name="author" content="Robinson Vidva" />
+  <link rel="icon" type="image/png" sizes="32x32" href="images/Preview.png" />
+  <link rel="icon" type="image/png" sizes="16x16" href="images/Preview.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="images/Preview.png" />
+  <meta name="theme-color" content="#0f172a" />
+  <meta property="og:title" content="enrichlite - client-side gene-set enrichment" />
+  <meta property="og:description" content="Free, fully client-side gene-set over-representation analysis (ORA) for human and mouse against GO, Reactome, and MSigDB Hallmark. Runs entirely in your browser." />
+  <meta property="og:image" content="https://robinsonvidva.com/enrichlite/images/Preview.png" />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://robinsonvidva.com/enrichlite/" />
+  <link rel="canonical" href="https://robinsonvidva.com/enrichlite/" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="enrichlite - client-side gene-set enrichment" />
+  <meta name="twitter:description" content="Free, fully client-side gene-set over-representation analysis (ORA) for human and mouse, in your browser." />
+  <meta name="twitter:image" content="https://robinsonvidva.com/enrichlite/images/Preview.png" />
 </head>
 <body>
   <header>
@@ -22,6 +38,7 @@
       <div class="input-actions">
         <button id="loadExample" type="button">Load example</button>
         <button id="clearGenes" type="button">Clear</button>
+        <button id="copyLink" type="button">Copy link</button>
       </div>
 
       <div class="controls">
@@ -70,6 +87,7 @@
         <button id="run" class="primary">Run analysis</button>
         <button id="dlCsv" disabled>Download CSV</button>
         <button id="dlJson" disabled>Download JSON</button>
+        <button id="copyTable" disabled>Copy table</button>
       </div>
 
       <div id="report" class="report"></div>

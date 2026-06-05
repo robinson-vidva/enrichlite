@@ -47,6 +47,8 @@
     customBg: document.getElementById("customBg"),
     loadExample: document.getElementById("loadExample"),
     clearGenes: document.getElementById("clearGenes"),
+    copyLink: document.getElementById("copyLink"),
+    copyTable: document.getElementById("copyTable"),
     fdr: document.getElementById("fdr"),
     adjust: document.getElementById("adjust"),
     run: document.getElementById("run"),
@@ -168,6 +170,7 @@
     el.noResults.classList.add("hidden");
     el.dlCsv.disabled = true;
     el.dlJson.disabled = true;
+    el.copyTable.disabled = true;
     setReport("");
     renderChart();           // lastResult null -> placeholder, disables chart export
     el.genes.focus();
@@ -224,6 +227,7 @@
     renderTable();
     el.dlCsv.disabled = false;
     el.dlJson.disabled = false;
+    el.copyTable.disabled = false;
   }
 
   function renderReport(res) {
@@ -712,19 +716,109 @@
     el.figText.classList.remove("hidden");
   }
 
-  function copyText(text, btn) {
-    var orig = btn.textContent;
-    var done = function () { btn.textContent = "Copied"; setTimeout(function () { btn.textContent = orig; }, 1200); };
-    var fallback = function () {
-      var ta = document.createElement("textarea");
-      ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
-      document.body.appendChild(ta); ta.select();
-      try { document.execCommand("copy"); done(); } catch (e) { /* ignore */ }
-      document.body.removeChild(ta);
-    };
+  function legacyCopy(text) {
+    var ta = document.createElement("textarea");
+    ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.select();
+    var ok = false;
+    try { ok = document.execCommand("copy"); } catch (e) { /* ignore */ }
+    document.body.removeChild(ta);
+    return ok;
+  }
+  function copyToClipboard(text) {
     if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(done, fallback);
-    } else { fallback(); }
+      return navigator.clipboard.writeText(text).then(function () { return true; },
+        function () { return legacyCopy(text); });
+    }
+    return Promise.resolve(legacyCopy(text));
+  }
+  function flash(btn, msg, ms) {
+    if (!btn.dataset.label) btn.dataset.label = btn.textContent;
+    btn.textContent = msg;
+    setTimeout(function () { btn.textContent = btn.dataset.label; }, ms || 1200);
+  }
+  function copyText(text, btn) {
+    copyToClipboard(text).then(function (ok) { flash(btn, ok ? "Copied" : "Copy failed"); });
+  }
+
+  // Copy the current filtered + sorted results as TSV (pastes into Excel/Sheets).
+  function copyTableTsv() {
+    var head = ["term", "namespace", "set_size_K", "overlap_k", "query_n", "background_N", "fold", "p", "fdr", "bonferroni", "genes"];
+    var lines = [head.join("\t")];
+    visibleRows().forEach(function (r) {
+      lines.push([r.name, r.namespace, r.K, r.k, r.n, r.N, r.fold, r.p, r.fdr, r.bonferroni, r.genes.join(" ")].join("\t"));
+    });
+    copyToClipboard(lines.join("\n")).then(function (ok) { flash(el.copyTable, ok ? "Copied" : "Copy failed"); });
+  }
+
+  // ---- shareable permalink (URL hash only, client-side) ----
+  var MAX_LINK = 6000;  // keep shareable links a sane length
+
+  function buildStateParams(includeGenes) {
+    var p = new URLSearchParams();
+    p.set("sp", state.species);
+    if (state.collectionKey) p.set("co", state.collectionKey);
+    p.set("bg", el.background.value);
+    if (el.background.value === "custom" && el.customBg.value.trim()) p.set("cbg", el.customBg.value.trim());
+    p.set("fdr", el.fdr.value);
+    p.set("adj", el.adjust.value);
+    if (el.sizeMin.value) p.set("smin", el.sizeMin.value);
+    if (el.sizeMax.value) p.set("smax", el.sizeMax.value);
+    if (el.minFold.value) p.set("mf", el.minFold.value);
+    if (el.minOverlap.value) p.set("mo", el.minOverlap.value);
+    if (el.termSearch.value.trim()) p.set("q", el.termSearch.value.trim());
+    p.set("ct", state.chartType);
+    p.set("top", String(state.topN));
+    p.set("cs", state.colorScheme);
+    if (includeGenes && el.genes.value.trim()) p.set("g", tokenize(el.genes.value).join(" "));
+    return p;
+  }
+  function shareUrl(includeGenes) {
+    return location.origin + location.pathname + "#" + buildStateParams(includeGenes).toString();
+  }
+  function copyLink() {
+    var url = shareUrl(true), note = "";
+    if (url.length > MAX_LINK) { url = shareUrl(false); note = " (settings only - gene list too long)"; }
+    copyToClipboard(url).then(function (ok) {
+      flash(el.copyLink, ok ? "Copied" + note : "Copy failed", note ? 2400 : 1200);
+    });
+  }
+
+  function restoreFromHash() {
+    var h = location.hash.replace(/^#/, "");
+    if (!h) return;
+    var p = new URLSearchParams(h);
+    if (!p.has("sp") && !p.has("g") && !p.has("co")) return;  // not an enrichlite link
+    var sp = p.get("sp");
+    if (sp === "human" || sp === "mouse") {
+      var btn = el.speciesToggle.querySelector('button[data-species="' + sp + '"]');
+      if (btn && sp !== state.species) btn.click();  // repopulates collections
+    }
+    var co = p.get("co");
+    if (co) {
+      var opt = el.collection.querySelector('option[value="' + co + '"]');
+      if (opt && !opt.disabled) { el.collection.value = co; state.collectionKey = co; }
+    }
+    if (p.has("bg")) {
+      el.background.value = p.get("bg");
+      el.customBgWrap.classList.toggle("hidden", el.background.value !== "custom");
+    }
+    if (p.has("cbg")) el.customBg.value = p.get("cbg");
+    if (p.has("fdr")) el.fdr.value = p.get("fdr");
+    if (p.get("adj") === "bonferroni" || p.get("adj") === "fdr") el.adjust.value = p.get("adj");
+    ["smin", "smax", "mf", "mo", "q"].forEach(function (k) {
+      var eln = { smin: el.sizeMin, smax: el.sizeMax, mf: el.minFold, mo: el.minOverlap, q: el.termSearch }[k];
+      if (p.has(k)) eln.value = p.get(k);
+    });
+    if (p.get("ct") === "dot" || p.get("ct") === "bar") {
+      state.chartType = p.get("ct");
+      Array.prototype.forEach.call(el.chartToggle.children, function (b) {
+        b.classList.toggle("active", b.dataset.chart === state.chartType);
+      });
+    }
+    if (["10", "25", "50"].indexOf(p.get("top")) > -1) { state.topN = parseInt(p.get("top"), 10); el.topN.value = p.get("top"); }
+    if (COLORMAPS[p.get("cs")]) { state.colorScheme = p.get("cs"); el.colorScheme.value = p.get("cs"); }
+    if (p.has("g")) el.genes.value = p.get("g").split(/\s+/).filter(Boolean).join("\n");
   }
 
   function serializeSvg(svg) {
@@ -874,6 +968,8 @@
     });
     el.dlCsv.addEventListener("click", downloadCsv);
     el.dlJson.addEventListener("click", downloadJson);
+    el.copyTable.addEventListener("click", copyTableTsv);
+    el.copyLink.addEventListener("click", copyLink);
     el.chartToggle.addEventListener("click", function (e) {
       var b = e.target.closest("button[data-chart]");
       if (!b) return;
@@ -997,6 +1093,7 @@
     renderAttribution();
     wireEvents();
     wireHelpBadges();
+    restoreFromHash();   // populate controls from a shared link (does not auto-run)
     renderChart();
   }
 

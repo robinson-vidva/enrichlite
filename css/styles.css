@@ -81,19 +81,28 @@ textarea { resize: vertical; }
 }
 .toggle button.active { background: var(--accent); color: #fff; }
 
-.actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
-.input-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0 2px; }
+/* Action rows: consistent gap and alignment (setup row + run/export row). */
+.actions, .input-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.input-actions { margin: 10px 0 2px; }
+.actions { margin-top: 12px; }
 
+/* Secondary button is the default; .primary (Run) is the one accent button. */
 button {
   border: 1px solid var(--border);
   background: #fff;
+  color: var(--ink);
   border-radius: 6px;
-  padding: 9px 16px;
+  padding: 8px 15px;
   font-size: 14px;
+  font-family: inherit;
+  line-height: 1.2;
   cursor: pointer;
 }
+button:not(.primary):not(:disabled):hover { border-color: var(--accent); color: var(--accent); }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
 button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+button.primary:not(:disabled):hover { background: #1b4fae; border-color: #1b4fae; }
 
 .report { margin-top: 14px; font-size: 14px; }
 .report .ok { color: #1c7a3d; }
@@ -102,8 +111,8 @@ button.primary { background: var(--accent); color: #fff; border-color: var(--acc
 .results-controls {
   display: flex;
   flex-wrap: wrap;
-  gap: 18px;
-  align-items: flex-end;
+  gap: 12px 16px;
+  align-items: center;
   margin-bottom: 12px;
 }
 .rc-group { display: flex; align-items: center; gap: 6px; }
@@ -187,7 +196,7 @@ th.sort-desc::after { border-top: 5px solid currentColor; }
 .pager { display: flex; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
 
 /* Visualization panel. */
-.viz-controls { display: flex; flex-wrap: wrap; gap: 18px; align-items: center; margin-bottom: 10px; }
+.viz-controls { display: flex; flex-wrap: wrap; gap: 12px 16px; align-items: center; margin-bottom: 10px; }
 .viz-controls .toggle button { padding: 6px 14px; }
 .viz-dl { margin-left: auto; }
 .chart-wrap { width: 100%; overflow-x: auto; }
