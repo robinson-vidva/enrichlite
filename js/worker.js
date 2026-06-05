@@ -66,9 +66,13 @@ function run(msg) {
       var g = terms[ti].genes;
       for (var gi = 0; gi < g.length; gi++) universe.add(g[gi]);
     }
-  } else if (bgMode === "custom" && customBg) {
-    var rc = resolveQuery(customBg, symIndex);
+  }
+  var bgRecognized = null, bgUnique = null;
+  if (bgMode === "custom") {
+    var rc = resolveQuery(customBg || [], symIndex);
     universe = rc.recognized;
+    bgRecognized = rc.unique - rc.dropped.length;
+    bgUnique = rc.unique;
   }
   // "coding" uses codingN directly; universe stays null (no membership filter
   // beyond the symbol table).
@@ -149,7 +153,9 @@ function run(msg) {
     recognized: q.unique - q.dropped.length,
     duplicates: q.duplicates,
     dropped: q.dropped,
-    bgMode: bgMode
+    bgMode: bgMode,
+    bgRecognized: bgRecognized,
+    bgUnique: bgUnique
   };
 }
 

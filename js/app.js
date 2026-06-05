@@ -33,6 +33,7 @@
   // size and the correction). Decide that model before implementing it.
 
   var worker = null;
+  var workerFailed = false;
   var VER = "0";  // cache-bust token from manifest.version
 
   var el = {
@@ -83,7 +84,12 @@
   }
 
   function tokenize(text) {
-    return text.split(/[\s,;]+/).map(function (t) { return t.trim(); }).filter(Boolean);
+    // Split on whitespace/comma/semicolon, then strip leading/trailing
+    // punctuation/quotes/brackets only - internal characters (e.g. the hyphen
+    // in HLA-DRB1 or NKX2-1) are preserved.
+    return text.split(/[\s,;]+/)
+      .map(function (t) { return t.replace(/^[^A-Za-z0-9]+/, "").replace(/[^A-Za-z0-9]+$/, ""); })
+      .filter(Boolean);
   }
 
   function collectionsForSpecies(sp) {
@@ -157,10 +163,19 @@
     el.genes.focus();
   }
 
+  // Lock the controls that define what ran (collection + species) plus Run,
+  // so the dropdown/toggle can never disagree with the displayed results.
+  function setRunning(on) {
+    el.run.disabled = on;
+    el.collection.disabled = on;
+    Array.prototype.forEach.call(el.speciesToggle.children, function (b) { b.disabled = on; });
+  }
+
   function run() {
+    if (workerFailed) { onWorkerError(); return; }
     var tokens = tokenize(el.genes.value);
     if (tokens.length === 0) { setReport('<span class="warn">Paste at least one gene symbol.</span>'); return; }
-    el.run.disabled = true;
+    setRunning(true);
     var rm = currentCollectionMeta();
     state.lastRunMeta = { species: state.species, collection: rm ? rm.label : state.collectionKey };
     setReport("Loading collection and computing...");
@@ -176,13 +191,21 @@
       };
       worker.postMessage(msg);
     }).catch(function (err) {
-      el.run.disabled = false;
+      setRunning(false);
       setReport('<span class="warn">' + err.message + '</span>');
     });
   }
 
+  // Worker script error or undeliverable message: turn a silent hang into a
+  // visible, recoverable error and unlock the controls.
+  function onWorkerError() {
+    workerFailed = true;
+    setRunning(false);
+    setReport('<span class="warn">Analysis failed to run - please reload the page.</span>');
+  }
+
   function onWorkerMessage(e) {
-    el.run.disabled = false;
+    setRunning(false);
     if (!e.data.ok) { setReport('<span class="warn">Error: ' + e.data.error + '</span>'); return; }
     state.lastResult = e.data.result;
     state.page = 1;
@@ -197,13 +220,28 @@
     var m = state.lastRunMeta || {};
     var sp = m.species ? m.species.charAt(0).toUpperCase() + m.species.slice(1) : "";
     var head = "<strong>" + sp + " | " + (m.collection || "") + "</strong> | ";
-    var html = head + '<span class="ok">recognized ' + res.recognized + " of " + res.uniqueGenes +
+    var recog = '<span class="ok">recognized ' + res.recognized + " of " + res.uniqueGenes +
       " unique gene" + (res.uniqueGenes === 1 ? "" : "s") + "</span>";
     if (res.duplicates) {
-      html += '<span class="muted"> (' + res.duplicates + " duplicate token" +
+      recog += '<span class="muted"> (' + res.duplicates + " duplicate token" +
         (res.duplicates === 1 ? "" : "s") + " ignored)</span>";
     }
-    html += " | n=" + res.n + " in universe | background N=" + res.N + " (" + bgLabel + ")";
+
+    // Custom background that is empty or fully unrecognized -> N=0; surface it
+    // instead of presenting a contradictory "n=0 | N=0" as a valid run.
+    if (res.bgMode === "custom" && res.N === 0) {
+      setReport(head + recog + '<br><span class="warn">Custom background has N=0: ' +
+        (res.bgUnique ? "none of its " + res.bgUnique + " genes were recognized" : "it is empty") +
+        ". No test was run. Paste a valid background gene list for the selected species, or " +
+        "switch the Background option.</span>");
+      return;
+    }
+
+    var html = head + recog + " | n=" + res.n + " in universe | background N=" + res.N + " (" + bgLabel + ")";
+    if (res.bgMode === "custom") {
+      html += '<span class="muted"> (custom background: ' + res.bgRecognized + " of " +
+        res.bgUnique + " recognized)</span>";
+    }
     if (res.dropped.length) {
       html += '<br><span class="warn">Unrecognized ' + res.dropped.length + ": " +
         res.dropped.slice(0, 25).join(", ") + (res.dropped.length > 25 ? " ..." : "") + "</span>";
@@ -813,6 +851,8 @@
     VER = encodeURIComponent(String(m.version || "0"));
     worker = new Worker("js/worker.js?v=" + VER);
     worker.onmessage = onWorkerMessage;
+    worker.onerror = onWorkerError;
+    worker.onmessageerror = onWorkerError;
     el.demoBanner.classList.toggle("hidden", !m.demo);
     populateCollections();
     renderAttribution();
