@@ -194,7 +194,35 @@
       <li>Display size bounds: terms with between 5 and 500 genes (after propagation) are kept.</li>
     </ul>
 
-    <h2>7. Reproducibility</h2>
+    <h2>7. Redundancy collapse and the GO hierarchy view</h2>
+    <p class="lead">
+      Two display-time tools help make sense of long, overlapping result lists - especially for GO,
+      where a term and its parent are often both significant on the same genes. Neither changes the
+      statistics or the multiple-testing family; they only reorganise terms that were already
+      computed.
+    </p>
+    <ul class="detail">
+      <li><strong>Redundancy collapse</strong> - groups terms that are significant because of the
+        same query genes and shows one representative per group, with the collapsed terms expandable.
+        Grouping is greedy and significance-first: the most significant term becomes a representative,
+        and any less-significant term whose overlapping query genes are mostly contained in it (at a
+        similarity threshold you choose) joins its group. It compares the overlapping genes, not term
+        labels, so it de-duplicates parent/child redundancy and works on any collection.</li>
+      <li><strong>GO hierarchy (tree) view</strong> - arranges the significant GO terms by their
+        <code>is_a</code> / <code>part_of</code> relationships as a collapsible indented outline,
+        colored by FDR and sized by overlap. A <strong>solid</strong> edge is a direct GO parent; a
+        <strong>dashed</strong> edge marks an ancestor with intervening non-significant terms omitted,
+        which you can expand to splice those terms in as faded nodes. It is built from a
+        nearest-shipped-ancestor reduction of the ontology and is available for GO collections only.</li>
+      <li><strong>Why displayed roots are not the ontology roots</strong> - because GO terms are
+        size-bounded to 5-500 genes (Section 6), the broad terms near the top of each namespace are
+        not shipped, so the tree cannot show the true ontology roots. Terms whose nearest shipped
+        ancestor is missing appear as roots and are flagged as such. Every solid edge that <em>is</em>
+        drawn is a genuine direct GO parent: the reduction never hides an intermediate term between a
+        shipped term and its nearest shipped ancestor.</li>
+    </ul>
+
+    <h2>8. Reproducibility</h2>
     <p class="lead">
       The analysis is fully reproducible: the same input always gives the same output, and the
       published data can be regenerated from the pinned sources.
@@ -208,7 +236,7 @@
       <a href="https://github.com/robinson-vidva/enrichlite">github.com/robinson-vidva/enrichlite</a>.
     </p>
 
-    <h2>8. Caveats</h2>
+    <h2>9. Caveats</h2>
     <div class="caveats detail">
       <ul>
         <li><strong>Small input lists are fragile.</strong> With only a handful of genes, an
@@ -220,6 +248,11 @@
         <li><strong>The size filter is display-only.</strong> The min/max set-size filter on the
           results table changes what is shown; it does not re-run the test or change any p-value or
           FDR.</li>
+        <li><strong>Redundancy collapse and the tree view are display-only too.</strong> They regroup
+          already-computed terms - collapse by shared overlapping genes, the GO tree by ontology
+          relationships - and never change any p-value, FDR, or the multiple-testing family. In the
+          tree, displayed roots are not the ontology roots, because broad size-excluded ancestors are
+          not shown.</li>
         <li><strong>ORA ignores ranking.</strong> Every query gene is treated equally; fold
           changes, effect sizes, and ordering are not used. This is over-representation analysis,
           not gene-set enrichment analysis (GSEA).</li>
