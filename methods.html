@@ -184,7 +184,10 @@
       <li>Annotations: the <code>goa_human</code> and <code>mgi</code> GAF files.</li>
       <li>Evidence policy: annotations with evidence code <code>ND</code> are always dropped;
         annotations carrying a <code>NOT</code> qualifier are dropped; electronic annotations
-        (<code>IEA</code>) are excluded by default.</li>
+        (<code>IEA</code>) are excluded by default. An "Include IEA" toggle in the app switches to a
+        separate IEA-included variant of the selected GO collection (which adds coverage, especially
+        for less-studied genes, at lower confidence); the default remains IEA-excluded. The chosen
+        variant is recorded in the figure legend, methods text, and exported file provenance.</li>
       <li>True-path-rule propagation over <code>is_a</code> and <code>part_of</code>: a gene
         annotated to a specific term also counts toward every ancestor of that term. Propagation
         stays within a namespace.</li>

@@ -542,14 +542,28 @@ def main():
         built[sp] = cols
         coding_counts[sp] = coding_n
         symbols_paths[sp] = "data/" + sp + "/symbols.json"
-        for key, terms in cols.items():
-            uni = set()
+
+        def universe_n(terms):
+            u = set()
             for t in terms:
-                uni.update(t["genes"])
-            manifest_collections.append({
+                u.update(t["genes"])
+            return len(u)
+
+        # Base (non-IEA) collections become dropdown entries; an IEA variant is
+        # attached to its base as `iea` (path + N), not a separate dropdown entry.
+        for key, terms in cols.items():
+            if key.endswith("_iea"):
+                continue
+            entry = {
                 "key": key, "label": LABELS.get(key, key), "species": sp,
-                "path": "data/" + sp + "/" + key + ".json", "available": True, "N": len(uni)
-            })
+                "path": "data/" + sp + "/" + key + ".json", "available": True,
+                "N": universe_n(terms)
+            }
+            iea_key = key + "_iea"
+            if iea_key in cols:
+                entry["iea"] = {"path": "data/" + sp + "/" + iea_key + ".json",
+                                "N": universe_n(cols[iea_key])}
+            manifest_collections.append(entry)
     # GO placeholders for namespaces not built this run (keep dropdown stable)
     for sp in args.species:
         for key, label in [("go_bp", "GO-BP"), ("go_mf", "GO-MF"), ("go_cc", "GO-CC")]:

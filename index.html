@@ -55,6 +55,11 @@
           <select id="collection"></select>
         </div>
 
+        <div class="control" id="ieaControl">
+          <span class="ctl-label">GO evidence<span class="helpq" title="IEA = Inferred from Electronic Annotation: GO annotations assigned computationally without manual curation (about 20-30 percent of annotations). Excluded by default for higher-confidence, curated evidence. Including them adds coverage, especially for less-studied genes. Applies to GO collections only.">?</span></span>
+          <label class="check-label"><input type="checkbox" id="includeIea" /> Include IEA (electronic)</label>
+        </div>
+
         <div class="control">
           <label for="background">Background<span class="helpq" title="The universe of genes the test compares against. 'Annotated in collection' = every gene that has any annotation in the selected collection. 'All protein-coding' uses the full coding gene count. Changing the background changes the p-values.">?</span></label>
           <select id="background">

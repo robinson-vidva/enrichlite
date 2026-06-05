@@ -43,6 +43,8 @@
     speciesToggle: document.getElementById("speciesToggle"),
     collection: document.getElementById("collection"),
     background: document.getElementById("background"),
+    includeIea: document.getElementById("includeIea"),
+    ieaControl: document.getElementById("ieaControl"),
     customBgWrap: document.getElementById("customBgWrap"),
     customBg: document.getElementById("customBg"),
     loadExample: document.getElementById("loadExample"),
@@ -123,6 +125,7 @@
       el.collection.value = firstAvail.key;
       state.collectionKey = firstAvail.key;
     }
+    updateIeaToggle();
   }
 
   function currentCollectionMeta() {
@@ -131,12 +134,27 @@
     });
   }
 
+  // IEA applies only to GO collections (those with an `iea` variant in the
+  // manifest). Enable the toggle there, grey it out otherwise.
+  function updateIeaToggle() {
+    var meta = currentCollectionMeta();
+    var hasIea = !!(meta && meta.iea);
+    el.includeIea.disabled = !hasIea;
+    el.ieaControl.classList.toggle("disabled", !hasIea);
+  }
+  function ieaActive() {
+    var meta = currentCollectionMeta();
+    return !!(meta && meta.iea && el.includeIea.checked);
+  }
+
   function loadCollection() {
     var meta = currentCollectionMeta();
-    var cacheKey = state.species + "/" + state.collectionKey;
+    var useIea = ieaActive();
+    var path = useIea ? meta.iea.path : meta.path;
+    var cacheKey = state.species + "/" + state.collectionKey + (useIea ? "/iea" : "");
     if (state.cache[cacheKey]) return Promise.resolve(state.cache[cacheKey]);
     var symPath = state.manifest.symbols[state.species];
-    return Promise.all([fetchJson(dataUrl(symPath)), fetchJson(dataUrl(meta.path))]).then(function (res) {
+    return Promise.all([fetchJson(dataUrl(symPath)), fetchJson(dataUrl(path))]).then(function (res) {
       var bundle = {
         symbols: res[0].symbols,
         aliases: res[0].aliases || null,
@@ -191,7 +209,7 @@
     setRunning(true);
     var rm = currentCollectionMeta();
     state.lastRunMeta = { species: state.species, collection: rm ? rm.label : state.collectionKey,
-      key: rm ? rm.key : state.collectionKey };
+      key: rm ? rm.key : state.collectionKey, iea: ieaActive() };
     setReport("Loading collection and computing...");
     loadCollection().then(function (bundle) {
       var msg = {
@@ -234,7 +252,8 @@
     var bgLabel = { annotated: "annotated in collection", coding: "all protein-coding", custom: "custom" }[res.bgMode];
     var m = state.lastRunMeta || {};
     var sp = m.species ? m.species.charAt(0).toUpperCase() + m.species.slice(1) : "";
-    var head = "<strong>" + sp + " | " + (m.collection || "") + "</strong> | ";
+    var collLabel = (m.collection || "") + (m.iea ? " (+IEA)" : "");
+    var head = "<strong>" + sp + " | " + collLabel + "</strong> | ";
     var recog = '<span class="ok">recognized ' + res.recognized + " of " + res.uniqueGenes +
       " unique gene" + (res.uniqueGenes === 1 ? "" : "s") + "</span>";
     if (res.duplicates) {
@@ -681,7 +700,10 @@
     var res = state.lastResult, m = state.lastRunMeta || {};
     var sp = m.species ? m.species.charAt(0).toUpperCase() + m.species.slice(1) : "";
     var coll = m.collection || "";
+    var isGo = m.key && m.key.indexOf("go") === 0;
     var collDesc = COLL_DESC[m.key] || coll;
+    if (isGo) collDesc += " (go-basic, " + (m.iea ? "including" : "excluding") + " IEA electronic annotations)";
+    var ieaClause = isGo ? (" GO annotations " + (m.iea ? "include" : "exclude") + " IEA (electronic) evidence.") : "";
     var bonf = el.adjust.value === "bonferroni";
     var sigMetric = bonf ? "Bonferroni-adjusted p" : "FDR";
     var corr = bonf ? "Bonferroni" : "Benjamini-Hochberg FDR";
@@ -694,12 +716,12 @@
     if (state.chartType === "bar") {
       legend = "Bar plot of the top " + topShown + " of " + M + " significant " + coll +
         " terms (" + sigMetric + " < " + thr + ") for the " + sp + " query, ordered by significance. " +
-        "Bar length shows -log10(FDR).";
+        "Bar length shows -log10(FDR)." + ieaClause;
     } else {
       legend = "Dot plot of the top " + topShown + " of " + M + " significant " + coll +
         " terms (" + sigMetric + " < " + thr + ") for the " + sp + " query, ordered by significance. " +
         "The x-axis shows fold enrichment (log scale), dot size shows the number of overlapping query " +
-        "genes, and dot color encodes -log10(" + sigMetric + ") on the " + scheme + " scale.";
+        "genes, and dot color encodes -log10(" + sigMetric + ") on the " + scheme + " scale." + ieaClause;
     }
 
     var methods = "Over-representation analysis was performed with enrichlite (" + ENRICHLITE_URL + "). " +
@@ -744,7 +766,7 @@
   // Copy the current filtered + sorted results as TSV (pastes into Excel/Sheets).
   function copyTableTsv() {
     var head = ["term", "namespace", "set_size_K", "overlap_k", "query_n", "background_N", "fold", "p", "fdr", "bonferroni", "genes"];
-    var lines = [head.join("\t")];
+    var lines = ["# " + provenanceLine(), head.join("\t")];
     visibleRows().forEach(function (r) {
       lines.push([r.name, r.namespace, r.K, r.k, r.n, r.N, r.fold, r.p, r.fdr, r.bonferroni, r.genes.join(" ")].join("\t"));
     });
@@ -758,6 +780,7 @@
     var p = new URLSearchParams();
     p.set("sp", state.species);
     if (state.collectionKey) p.set("co", state.collectionKey);
+    if (el.includeIea.checked) p.set("iea", "1");
     p.set("bg", el.background.value);
     if (el.background.value === "custom" && el.customBg.value.trim()) p.set("cbg", el.customBg.value.trim());
     p.set("fdr", el.fdr.value);
@@ -799,6 +822,8 @@
       var opt = el.collection.querySelector('option[value="' + co + '"]');
       if (opt && !opt.disabled) { el.collection.value = co; state.collectionKey = co; }
     }
+    el.includeIea.checked = p.get("iea") === "1";
+    updateIeaToggle();
     if (p.has("bg")) {
       el.background.value = p.get("bg");
       el.customBgWrap.classList.toggle("hidden", el.background.value !== "custom");
@@ -861,9 +886,25 @@
     return buildView();
   }
 
+  // One-line provenance recording the exact variant used (including IEA),
+  // background, correction, and data versions. Prepended to CSV/TSV and carried
+  // structured in JSON.
+  function provenanceLine() {
+    var m = state.lastRunMeta || {}, res = state.lastResult || {};
+    var sp = m.species ? m.species.charAt(0).toUpperCase() + m.species.slice(1) : "";
+    var coll = (m.collection || "") + (m.iea ? " (+IEA)" : "");
+    var bg = { annotated: "annotated in collection", coding: "all protein-coding", custom: "custom" }[res.bgMode] || "";
+    var bonf = el.adjust.value === "bonferroni";
+    var sigMetric = bonf ? "Bonferroni-adjusted p" : "FDR";
+    var thr = parseFloat(el.fdr.value) || 0;
+    return "enrichlite | " + sp + " | " + coll + " | background: " + bg + " (N=" + res.N + ") | " +
+      sigMetric + " < " + thr + " (" + (bonf ? "Bonferroni" : "BH-FDR") + ")" +
+      (sourceCitation(m.key) ? " | data: " + sourceCitation(m.key) : "") + " | " + ENRICHLITE_URL;
+  }
+
   function downloadCsv() {
     var head = ["term", "namespace", "set_size_K", "overlap_k", "query_n", "background_N", "fold", "p", "fdr", "bonferroni", "genes"];
-    var lines = [head.join(",")];
+    var lines = ["# " + provenanceLine(), head.join(",")];
     visibleRows().forEach(function (r) {
       var cells = [r.name, r.namespace, r.K, r.k, r.n, r.N, r.fold, r.p, r.fdr, r.bonferroni, r.genes.join(" ")];
       lines.push(cells.map(csvCell).join(","));
@@ -878,10 +919,17 @@
   }
 
   function downloadJson() {
+    var m = state.lastRunMeta || {};
     var payload = {
+      tool: "enrichlite", url: ENRICHLITE_URL,
       species: state.species,
       collection: state.collectionKey,
+      iea: !!m.iea,
       background: state.lastResult.bgMode,
+      correction: el.adjust.value === "bonferroni" ? "Bonferroni" : "BH-FDR",
+      fdrThreshold: parseFloat(el.fdr.value) || 0,
+      dataSource: sourceCitation(m.key),
+      provenance: provenanceLine(),
       N: state.lastResult.N,
       n: state.lastResult.n,
       results: visibleRows()
@@ -916,7 +964,7 @@
       state.species = b.dataset.species;
       populateCollections();
     });
-    el.collection.addEventListener("change", function () { state.collectionKey = el.collection.value; });
+    el.collection.addEventListener("change", function () { state.collectionKey = el.collection.value; updateIeaToggle(); });
     el.background.addEventListener("change", function () {
       el.customBgWrap.classList.toggle("hidden", el.background.value !== "custom");
     });
