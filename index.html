@@ -78,11 +78,22 @@
     <section class="panel">
       <div class="results-controls">
         <div class="rc-group">
-          <label for="sizeMin">Set size filter</label>
+          <label for="sizeMin">Set size</label>
           <input id="sizeMin" type="number" min="0" placeholder="min" />
           <span class="dash">-</span>
           <input id="sizeMax" type="number" min="0" placeholder="max" />
-          <span class="muted help" title="Filters which loaded terms are shown by gene-set size (K). This is a display-time filter on results already computed, separate from the build-time size bounds (--min/--max) in build_genesets.py.">display filter</span>
+        </div>
+        <div class="rc-group">
+          <label for="minFold">Min fold</label>
+          <input id="minFold" type="number" min="0" step="0.5" placeholder="any" />
+        </div>
+        <div class="rc-group">
+          <label for="minOverlap">Min overlap</label>
+          <input id="minOverlap" type="number" min="0" step="1" placeholder="any" />
+        </div>
+        <div class="rc-group rc-search">
+          <label for="termSearch">Search</label>
+          <input id="termSearch" type="search" placeholder="term name" />
         </div>
         <div class="rc-group">
           <label for="pageSize">Rows per page</label>
@@ -93,6 +104,7 @@
             <option value="all">All</option>
           </select>
         </div>
+        <span class="muted help" title="All filters here are display-time only: they change which already-computed terms are shown (and exported and plotted), but never recompute the statistics or the FDR. Separate from the build-time size bounds (--min/--max) in build_genesets.py.">display filters</span>
       </div>
 
       <div class="active-filters">
@@ -144,6 +156,16 @@
             <option value="50">50</option>
           </select>
         </div>
+        <div class="rc-group">
+          <label for="colorScheme">Color (FDR)</label>
+          <select id="colorScheme">
+            <option value="viridis" selected>Viridis</option>
+            <option value="cividis">Cividis</option>
+            <option value="magma">Magma</option>
+            <option value="blues">Blues</option>
+            <option value="ylordr">YlOrRd</option>
+          </select>
+        </div>
         <div class="rc-group viz-dl">
           <button id="dlSvg" disabled>Download SVG</button>
           <button id="dlPng" disabled>Download PNG</button>
@@ -151,6 +173,19 @@
       </div>
       <p id="vizCaption" class="muted"></p>
       <div id="chartWrap" class="chart-wrap"></div>
+
+      <div id="figText" class="fig-text hidden">
+        <div class="fig-block">
+          <div class="fig-head"><span>Figure legend</span>
+            <button id="copyLegend" type="button" class="link-btn">Copy</button></div>
+          <p id="figLegend" class="fig-body"></p>
+        </div>
+        <div class="fig-block">
+          <div class="fig-head"><span>Methods (for a paper)</span>
+            <button id="copyMethods" type="button" class="link-btn">Copy</button></div>
+          <p id="figMethods" class="fig-body"></p>
+        </div>
+      </div>
     </section>
   </main>
 

@@ -15,6 +15,7 @@
     pageSize: 25,       // number, or "all"
     chartType: "dot",   // "dot" | "bar"
     topN: 25,
+    colorScheme: "viridis",
     currentSvg: null
   };
 
@@ -64,12 +65,21 @@
     showingInfo: document.getElementById("showingInfo"),
     filterChips: document.getElementById("filterChips"),
     clearFilters: document.getElementById("clearFilters"),
+    minFold: document.getElementById("minFold"),
+    minOverlap: document.getElementById("minOverlap"),
+    termSearch: document.getElementById("termSearch"),
     chartToggle: document.getElementById("chartToggle"),
     topN: document.getElementById("topN"),
+    colorScheme: document.getElementById("colorScheme"),
     vizCaption: document.getElementById("vizCaption"),
     chartWrap: document.getElementById("chartWrap"),
     dlSvg: document.getElementById("dlSvg"),
-    dlPng: document.getElementById("dlPng")
+    dlPng: document.getElementById("dlPng"),
+    figText: document.getElementById("figText"),
+    figLegend: document.getElementById("figLegend"),
+    figMethods: document.getElementById("figMethods"),
+    copyLegend: document.getElementById("copyLegend"),
+    copyMethods: document.getElementById("copyMethods")
   };
 
   function fetchJson(path) {
@@ -177,7 +187,8 @@
     if (tokens.length === 0) { setReport('<span class="warn">Paste at least one gene symbol.</span>'); return; }
     setRunning(true);
     var rm = currentCollectionMeta();
-    state.lastRunMeta = { species: state.species, collection: rm ? rm.label : state.collectionKey };
+    state.lastRunMeta = { species: state.species, collection: rm ? rm.label : state.collectionKey,
+      key: rm ? rm.key : state.collectionKey };
     setReport("Loading collection and computing...");
     loadCollection().then(function (bundle) {
       var msg = {
@@ -263,6 +274,22 @@
     return true;
   }
 
+  // Display-time filters (do not recompute stats): min fold, min overlap, and a
+  // case-insensitive term-name search. Shared by the table, export, and charts.
+  function passesExtra(row) {
+    var mf = parseFloat(el.minFold.value);
+    if (!isNaN(mf) && row.fold < mf) return false;
+    var mo = parseInt(el.minOverlap.value, 10);
+    if (!isNaN(mo) && row.k < mo) return false;
+    var q = el.termSearch.value.trim().toLowerCase();
+    if (q && row.name.toLowerCase().indexOf(q) === -1) return false;
+    return true;
+  }
+
+  function passesFilters(row) {
+    return passesThreshold(row) && passesSize(row) && passesExtra(row);
+  }
+
   function fmtP(x) {
     if (x === 0) return "0";
     if (x < 1e-4) return x.toExponential(2);
@@ -272,9 +299,7 @@
   // Full filtered + sorted result set (paginated only at render time).
   function buildView() {
     if (!state.lastResult) return [];
-    var rows = state.lastResult.rows.filter(function (r) {
-      return passesThreshold(r) && passesSize(r);
-    });
+    var rows = state.lastResult.rows.filter(passesFilters);
     var k = state.sortKey, dir = state.sortDir;
     rows.sort(function (a, b) {
       var av = a[k], bv = b[k];
@@ -368,6 +393,13 @@
     else if (!isNaN(mn)) chips.push("size >= " + mn);
     else if (!isNaN(mx)) chips.push("size <= " + mx);
 
+    var mf = parseFloat(el.minFold.value);
+    if (!isNaN(mf)) chips.push("fold >= " + mf);
+    var mo = parseInt(el.minOverlap.value, 10);
+    if (!isNaN(mo)) chips.push("overlap >= " + mo);
+    var q = el.termSearch.value.trim();
+    if (q) chips.push('search "' + q + '"');
+
     chips.push("sorted by " + (SORT_LABELS[state.sortKey] || state.sortKey) +
       " " + (state.sortDir === 1 ? "asc" : "desc"));
     chips.push((state.pageSize === "all" ? "all" : state.pageSize) + " / page");
@@ -433,9 +465,7 @@
   // charts. Independent of the table's current sort column.
   function chartRows() {
     if (!state.lastResult) return [];
-    var rows = state.lastResult.rows.filter(function (r) {
-      return passesThreshold(r) && passesSize(r);
-    });
+    var rows = state.lastResult.rows.filter(passesFilters);
     rows.sort(function (a, b) { return a.p - b.p; });
     return rows;
   }
@@ -450,18 +480,18 @@
   }
 
   function axisLabels(rows, svg, marginLeft, marginTop, rowH) {
-    // Chars that fit the gutter at ~11px; wrap to at most 2 lines.
-    var maxChars = Math.max(14, Math.floor((marginLeft - 16) / 5.8));
+    // Chars that fit the gutter at ~13px; wrap to at most 2 lines.
+    var maxChars = Math.max(14, Math.floor((marginLeft - 16) / 6.6));
     rows.forEach(function (r, i) {
       var cy = marginTop + i * rowH + rowH / 2;
       var lines = wrapLabel(r.name, maxChars, 2);
       var t = svgEl("text", {
-        x: marginLeft - 8, "text-anchor": "end", "dominant-baseline": "middle",
-        "font-size": 11, fill: "#1c2330"
+        x: marginLeft - 10, "text-anchor": "end", "dominant-baseline": "middle",
+        "font-size": 13, fill: "#1c2330"
       });
-      var startY = cy - (lines.length - 1) * 6;
+      var startY = cy - (lines.length - 1) * 7;
       lines.forEach(function (ln, j) {
-        t.appendChild(svgEl("tspan", { x: marginLeft - 8, y: startY + j * 12 }, ln));
+        t.appendChild(svgEl("tspan", { x: marginLeft - 10, y: startY + j * 14 }, ln));
       });
       withTitle(t, r.name + " (" + r.namespace + ")");
       svg.appendChild(t);
@@ -469,7 +499,7 @@
   }
 
   function buildBarSvg(rows, W) {
-    var mL = 250, mR = 56, mT = 18, mB = 34, rowH = 26, barH = 14;
+    var mL = 280, mR = 60, mT = 20, mB = 50, rowH = 32, barH = 18;
     var H = mT + rows.length * rowH + mB;
     var plotW = W - mL - mR;
     var svg = newSvg(W, H);
@@ -481,9 +511,9 @@
       var xv = xmax * t / ticks;
       var x = mL + (xv / xmax) * plotW;
       svg.appendChild(svgEl("line", { x1: x, y1: mT, x2: x, y2: mT + rows.length * rowH, stroke: "#eceff5" }));
-      svg.appendChild(svgEl("text", { x: x, y: H - mB + 16, "text-anchor": "middle", "font-size": 10, fill: "#66718a" }, xv.toFixed(1)));
+      svg.appendChild(svgEl("text", { x: x, y: mT + rows.length * rowH + 20, "text-anchor": "middle", "font-size": 12, fill: "#66718a" }, xv.toFixed(1)));
     }
-    svg.appendChild(svgEl("text", { x: mL + plotW / 2, y: H - 4, "text-anchor": "middle", "font-size": 11, fill: "#66718a" }, "-log10(FDR)"));
+    svg.appendChild(svgEl("text", { x: mL + plotW / 2, y: H - 10, "text-anchor": "middle", "font-size": 13, fill: "#66718a" }, "-log10(FDR)"));
 
     rows.forEach(function (r, i) {
       var y = mT + i * rowH;
@@ -497,21 +527,35 @@
     return svg;
   }
 
-  // 3-stop YlOrRd-ish scale; t in [0,1], 1 = most significant.
-  function fdrColor(t) {
-    var stops = [[255, 237, 160], [254, 178, 76], [227, 26, 28]];
-    var seg = t >= 1 ? 1 : t * (stops.length - 1);
+  // Perceptually-uniform / colorblind-safe scales. Stops run t=0 (least
+  // significant) -> t=1 (most significant); t=1 is the dark / high-contrast end
+  // so the important points stay visible on white.
+  var COLORMAPS = {
+    viridis: { label: "Viridis", stops: [[253, 231, 37], [94, 201, 98], [33, 145, 140], [59, 82, 139], [68, 1, 84]] },
+    cividis: { label: "Cividis", stops: [[255, 233, 69], [167, 151, 91], [123, 123, 120], [60, 89, 134], [0, 34, 77]] },
+    magma: { label: "Magma", stops: [[252, 253, 191], [251, 137, 97], [183, 55, 121], [81, 18, 124], [0, 0, 4]] },
+    blues: { label: "Blues", stops: [[247, 251, 255], [198, 219, 239], [107, 174, 214], [33, 113, 181], [8, 48, 107]] },
+    ylordr: { label: "YlOrRd", stops: [[255, 255, 204], [254, 217, 118], [253, 141, 60], [240, 59, 32], [189, 0, 38]] }
+  };
+
+  // t in [0,1], 1 = most significant.
+  function cmap(name, t) {
+    var stops = (COLORMAPS[name] || COLORMAPS.viridis).stops;
+    if (t < 0) t = 0; if (t > 1) t = 1;
+    var seg = t * (stops.length - 1);
     var i = Math.min(Math.floor(seg), stops.length - 2);
     var f = seg - i, a = stops[i], b = stops[i + 1];
-    var c = a.map(function (av, j) { return Math.round(av + f * (b[j] - av)); });
-    return "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")";
+    return "rgb(" + Math.round(a[0] + f * (b[0] - a[0])) + "," +
+      Math.round(a[1] + f * (b[1] - a[1])) + "," + Math.round(a[2] + f * (b[2] - a[2])) + ")";
   }
 
   function buildDotSvg(rows, W) {
-    var mL = 250, mR = 150, mT = 18, mB = 40, rowH = 26;
+    var mL = 280, mR = 170, mT = 20, mB = 50, rowH = 32;
     var H = mT + rows.length * rowH + mB;
     var plotW = W - mL - mR;
     var svg = newSvg(W, H);
+    var scheme = state.colorScheme;
+    var stroke = "rgba(0,0,0,0.3)";
 
     var xs = rows.map(function (r) { return Math.log10(Math.max(r.fold, 0.001)); });
     var xmin = Math.min.apply(null, xs), xmax = Math.max.apply(null, xs);
@@ -521,29 +565,30 @@
 
     var ks = rows.map(function (r) { return r.k; });
     var kmin = Math.min.apply(null, ks), kmax = Math.max.apply(null, ks);
-    var rad = function (k) { return kmax === kmin ? 7 : 4 + (k - kmin) / (kmax - kmin) * 8; };
+    var rad = function (k) { return kmax === kmin ? 8 : 5 + (k - kmin) / (kmax - kmin) * 9; };
 
     var vs = rows.map(function (r) { return nlog10(r.fdr); });
     var vmin = Math.min.apply(null, vs), vmax = Math.max.apply(null, vs);
     var colorT = function (v) { return vmax === vmin ? 1 : (v - vmin) / (vmax - vmin); };
 
+    var plotBottom = mT + rows.length * rowH;
     // x gridlines + ticks (labelled in fold-enrichment units)
     var ticks = 4;
     for (var t = 0; t <= ticks; t++) {
       var lv = xmin + (xmax - xmin) * t / ticks;
       var x = xpix(lv);
-      svg.appendChild(svgEl("line", { x1: x, y1: mT, x2: x, y2: mT + rows.length * rowH, stroke: "#eceff5" }));
+      svg.appendChild(svgEl("line", { x1: x, y1: mT, x2: x, y2: plotBottom, stroke: "#eceff5" }));
       var fold = Math.pow(10, lv);
-      svg.appendChild(svgEl("text", { x: x, y: H - mB + 16, "text-anchor": "middle", "font-size": 10, fill: "#66718a" },
+      svg.appendChild(svgEl("text", { x: x, y: plotBottom + 20, "text-anchor": "middle", "font-size": 12, fill: "#66718a" },
         fold >= 10 ? String(Math.round(fold)) : fold.toFixed(1)));
     }
-    svg.appendChild(svgEl("text", { x: mL + plotW / 2, y: H - 6, "text-anchor": "middle", "font-size": 11, fill: "#66718a" }, "fold enrichment (log scale)"));
+    svg.appendChild(svgEl("text", { x: mL + plotW / 2, y: H - 10, "text-anchor": "middle", "font-size": 13, fill: "#66718a" }, "fold enrichment (log scale)"));
 
     rows.forEach(function (r, i) {
       var y = mT + i * rowH + rowH / 2;
       var dot = svgEl("circle", {
         cx: xpix(Math.log10(Math.max(r.fold, 0.001))), cy: y, r: rad(r.k),
-        fill: fdrColor(colorT(nlog10(r.fdr))), stroke: "#7a1d1d", "stroke-width": 0.5
+        fill: cmap(scheme, colorT(nlog10(r.fdr))), stroke: stroke, "stroke-width": 0.6
       });
       withTitle(dot, r.name + "  fold=" + r.fold.toFixed(1) + "  overlap=" + r.k + "/" + r.K + "  FDR=" + r.fdr.toExponential(2));
       svg.appendChild(dot);
@@ -551,22 +596,23 @@
     axisLabels(rows, svg, mL, mT, rowH);
 
     // legends in the right margin: FDR color gradient + overlap size
-    var lx = W - mR + 24, ly = mT + 6;
-    svg.appendChild(svgEl("text", { x: lx, y: ly, "font-size": 10, fill: "#66718a" }, "FDR"));
-    var gradH = 70;
+    var lx = W - mR + 24, ly = mT + 8;
+    svg.appendChild(svgEl("text", { x: lx, y: ly, "font-size": 12, fill: "#66718a" }, "FDR (-log10)"));
+    var gradH = 90;
     for (var g = 0; g < gradH; g++) {
-      var tt = 1 - g / gradH;
-      svg.appendChild(svgEl("rect", { x: lx, y: ly + 6 + g, width: 12, height: 1, fill: fdrColor(tt) }));
+      svg.appendChild(svgEl("rect", { x: lx, y: ly + 8 + g, width: 14, height: 1, fill: cmap(scheme, 1 - g / gradH) }));
     }
-    svg.appendChild(svgEl("text", { x: lx + 16, y: ly + 12, "font-size": 9, fill: "#66718a" }, "most sig"));
-    svg.appendChild(svgEl("text", { x: lx + 16, y: ly + 6 + gradH, "font-size": 9, fill: "#66718a" }, "least"));
-    var sy = ly + 6 + gradH + 24;
-    svg.appendChild(svgEl("text", { x: lx, y: sy - 8, "font-size": 10, fill: "#66718a" }, "overlap"));
+    svg.appendChild(svgEl("text", { x: lx + 20, y: ly + 14, "font-size": 11, fill: "#66718a" }, "most sig"));
+    svg.appendChild(svgEl("text", { x: lx + 20, y: ly + 8 + gradH, "font-size": 11, fill: "#66718a" }, "least"));
+    svg.appendChild(svgEl("text", { x: lx, y: ly + 8 + gradH + 16, "font-size": 10, fill: "#9aa3b4" },
+      (COLORMAPS[scheme] || COLORMAPS.viridis).label));
+    var sy = ly + 8 + gradH + 44;
+    svg.appendChild(svgEl("text", { x: lx, y: sy - 10, "font-size": 12, fill: "#66718a" }, "overlap"));
     [kmin, kmax].forEach(function (k, j) {
       if (j === 1 && kmax === kmin) return;
-      var cy = sy + 8 + j * 26;
-      svg.appendChild(svgEl("circle", { cx: lx + 8, cy: cy, r: rad(k), fill: "#ccd3e0", stroke: "#7a1d1d", "stroke-width": 0.5 }));
-      svg.appendChild(svgEl("text", { x: lx + 24, y: cy + 3, "font-size": 9, fill: "#66718a" }, String(k)));
+      var cy = sy + 10 + j * 32;
+      svg.appendChild(svgEl("circle", { cx: lx + 10, cy: cy, r: rad(k), fill: "#ccd3e0", stroke: stroke, "stroke-width": 0.6 }));
+      svg.appendChild(svgEl("text", { x: lx + 30, y: cy + 4, "font-size": 11, fill: "#66718a" }, String(k)));
     });
     return svg;
   }
@@ -577,24 +623,26 @@
       el.vizCaption.textContent = "Run an analysis to see charts.";
       state.currentSvg = null;
       el.dlSvg.disabled = true; el.dlPng.disabled = true;
+      el.figText.classList.add("hidden");
       return;
     }
     var rows = chartRows();
     var M = rows.length;
     if (M === 0) {
       el.chartWrap.innerHTML = '<p class="empty-chart">No terms pass ' + esc(sigLabelText()) +
-        ". Adjust the threshold or filters.</p>";
+        " with the current filters. Adjust the threshold or filters.</p>";
       el.vizCaption.textContent = "";
       state.currentSvg = null;
       el.dlSvg.disabled = true; el.dlPng.disabled = true;
+      el.figText.classList.add("hidden");
       return;
     }
     var top = rows.slice(0, state.topN);
     // Size the chart to the panel width (clamped) so it fills the space on wide
     // screens and scrolls inside its container on narrow ones; high enough
     // intrinsic width keeps SVG/PNG export crisp.
-    var cw = el.chartWrap.clientWidth || 680;
-    var W = Math.max(620, Math.min(cw, 1100));
+    var cw = el.chartWrap.clientWidth || 760;
+    var W = Math.max(680, Math.min(cw, 1100));
     var svg = state.chartType === "bar" ? buildBarSvg(top, W) : buildDotSvg(top, W);
     el.chartWrap.innerHTML = "";
     el.chartWrap.appendChild(svg);
@@ -602,6 +650,81 @@
     el.vizCaption.textContent = "Showing top " + top.length + " of " + M +
       " significant terms (" + sigLabelText() + "), ordered by significance.";
     el.dlSvg.disabled = false; el.dlPng.disabled = false;
+    renderFigureText(top.length, M);
+  }
+
+  var ENRICHLITE_URL = "https://robinson-vidva.github.io/enrichlite/";
+  var COLL_DESC = {
+    reactome: "Reactome pathways", hallmark: "the MSigDB Hallmark collection",
+    go_bp: "GO biological-process terms", go_mf: "GO molecular-function terms",
+    go_cc: "GO cellular-component terms"
+  };
+
+  function sourceCitation(key) {
+    var s = (state.manifest && state.manifest.sources) || {};
+    if (key && key.indexOf("go") === 0) {
+      var g = s.go || {};
+      return "Gene Ontology release " + (g.release || "n/a") + (g.doi ? " (DOI " + g.doi + ")" : "");
+    }
+    if (key === "hallmark") return "MSigDB Hallmark " + ((s.msigdb || {}).version || "n/a");
+    if (key === "reactome") return "Reactome (" + ((s.reactome || {}).version || "current") + " release)";
+    return "";
+  }
+
+  // Build copy-pasteable figure legend + methods text from the ACTUAL run and
+  // the currently selected parameters. Wording follows methods.html.
+  function renderFigureText(topShown, M) {
+    var res = state.lastResult, m = state.lastRunMeta || {};
+    var sp = m.species ? m.species.charAt(0).toUpperCase() + m.species.slice(1) : "";
+    var coll = m.collection || "";
+    var collDesc = COLL_DESC[m.key] || coll;
+    var bonf = el.adjust.value === "bonferroni";
+    var sigMetric = bonf ? "Bonferroni-adjusted p" : "FDR";
+    var corr = bonf ? "Bonferroni" : "Benjamini-Hochberg FDR";
+    var thr = parseFloat(el.fdr.value) || 0;
+    var bgDesc = { annotated: "genes annotated in " + collDesc, coding: "all protein-coding genes",
+      custom: "a user-supplied custom background" }[res.bgMode];
+    var scheme = (COLORMAPS[state.colorScheme] || COLORMAPS.viridis).label;
+
+    var legend;
+    if (state.chartType === "bar") {
+      legend = "Bar plot of the top " + topShown + " of " + M + " significant " + coll +
+        " terms (" + sigMetric + " < " + thr + ") for the " + sp + " query, ordered by significance. " +
+        "Bar length shows -log10(FDR).";
+    } else {
+      legend = "Dot plot of the top " + topShown + " of " + M + " significant " + coll +
+        " terms (" + sigMetric + " < " + thr + ") for the " + sp + " query, ordered by significance. " +
+        "The x-axis shows fold enrichment (log scale), dot size shows the number of overlapping query " +
+        "genes, and dot color encodes -log10(" + sigMetric + ") on the " + scheme + " scale.";
+    }
+
+    var methods = "Over-representation analysis was performed with enrichlite (" + ENRICHLITE_URL + "). " +
+      sp + " query genes were tested for over-representation in " + collDesc + " using a one-tailed " +
+      "hypergeometric test (equivalent to the one-sided Fisher's exact test). The background universe was " +
+      bgDesc + " (N = " + res.N + "); " + res.n + " query genes mapped into this universe. P-values were " +
+      "adjusted for multiple testing across the " + res.rows.length + " tested gene sets using " + corr +
+      " correction, and gene sets with " + sigMetric + " < " + thr + " were considered significant. " +
+      "This is over-representation analysis (ORA), not gene-set enrichment analysis (GSEA). Data source: " +
+      sourceCitation(m.key) + ".";
+
+    el.figLegend.textContent = legend;
+    el.figMethods.textContent = methods;
+    el.figText.classList.remove("hidden");
+  }
+
+  function copyText(text, btn) {
+    var orig = btn.textContent;
+    var done = function () { btn.textContent = "Copied"; setTimeout(function () { btn.textContent = orig; }, 1200); };
+    var fallback = function () {
+      var ta = document.createElement("textarea");
+      ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand("copy"); done(); } catch (e) { /* ignore */ }
+      document.body.removeChild(ta);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, fallback);
+    } else { fallback(); }
   }
 
   function serializeSvg(svg) {
@@ -712,6 +835,9 @@
     el.adjust.addEventListener("change", repage);
     el.sizeMin.addEventListener("input", repage);
     el.sizeMax.addEventListener("input", repage);
+    el.minFold.addEventListener("input", repage);
+    el.minOverlap.addEventListener("input", repage);
+    el.termSearch.addEventListener("input", repage);
     el.pageSize.addEventListener("change", function () {
       var v = el.pageSize.value;
       state.pageSize = v === "all" ? "all" : parseInt(v, 10);
@@ -720,10 +846,13 @@
     el.prevPage.addEventListener("click", function () { state.page -= 1; renderTable(); });
     el.nextPage.addEventListener("click", function () { state.page += 1; renderTable(); });
     el.clearFilters.addEventListener("click", function () {
-      // Reset size range, sort, and page size to defaults. Does not touch the
-      // FDR threshold/correction and does not re-run the worker.
+      // Reset the display filters, sort, and page size to defaults. Does not
+      // touch the FDR threshold/correction and does not re-run the worker.
       el.sizeMin.value = "";
       el.sizeMax.value = "";
+      el.minFold.value = "";
+      el.minOverlap.value = "";
+      el.termSearch.value = "";
       el.pageSize.value = "25";
       state.pageSize = 25;
       state.sortKey = "p";
@@ -731,13 +860,17 @@
       state.page = 1;
       renderTable();
     });
-    // Expand/collapse a truncated genes cell.
+    // Expand a truncated genes cell ("+N more") or term cell (click anywhere).
     el.tbody.addEventListener("click", function (e) {
       var btn = e.target.closest(".more");
-      if (!btn) return;
-      var td = btn.closest("td.genes");
-      var expanded = td.classList.toggle("expanded");
-      btn.textContent = expanded ? "show less" : "+" + btn.dataset.extra + " more";
+      if (btn) {
+        var td = btn.closest("td.genes");
+        var expanded = td.classList.toggle("expanded");
+        btn.textContent = expanded ? "show less" : "+" + btn.dataset.extra + " more";
+        return;
+      }
+      var term = e.target.closest("td.term");
+      if (term) term.classList.toggle("expanded");
     });
     el.dlCsv.addEventListener("click", downloadCsv);
     el.dlJson.addEventListener("click", downloadJson);
@@ -753,6 +886,12 @@
       state.topN = parseInt(el.topN.value, 10);
       renderChart();
     });
+    el.colorScheme.addEventListener("change", function () {
+      state.colorScheme = el.colorScheme.value;
+      renderChart();
+    });
+    el.copyLegend.addEventListener("click", function () { copyText(el.figLegend.textContent, el.copyLegend); });
+    el.copyMethods.addEventListener("click", function () { copyText(el.figMethods.textContent, el.copyMethods); });
     el.dlSvg.addEventListener("click", downloadSvg);
     el.dlPng.addEventListener("click", downloadPng);
     // Re-fit the chart to the panel width on resize (debounced).

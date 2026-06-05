@@ -153,8 +153,11 @@ th[data-sort]:hover { color: var(--accent); }
 td.num, th[data-sort="K"], th[data-sort="k"], th[data-sort="fold"],
 th[data-sort="p"], th[data-sort="fdr"], th[data-sort="bonferroni"] { white-space: nowrap; }
 td.ns { white-space: nowrap; }
-/* Long text columns truncate with a tooltip instead of widening the table. */
-td.term { max-width: 210px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Long text columns truncate with a tooltip instead of widening the table.
+   Click the Term cell to expand/wrap the full name (hover title kept too). */
+td.term { max-width: 210px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+td.term.expanded { white-space: normal; overflow: visible; }
+td.term:hover { color: var(--accent); }
 td.ns { max-width: 130px; overflow: hidden; text-overflow: ellipsis; }
 /* Genes cell shows a short preview + "+N more"; full list is hidden until
    expanded (and is always in the title tooltip). Export keeps the full list. */
@@ -192,6 +195,19 @@ th.sort-desc::after { border-top: 5px solid currentColor; }
    screens; on narrow screens it keeps a minimum width and scrolls here. */
 .chart-wrap svg { display: block; }
 .empty-chart { color: var(--muted); padding: 16px 4px; }
+
+.rc-search input[type="search"] { width: 150px; }
+
+/* Auto-generated, copy-pasteable figure legend + methods text. */
+.fig-text { margin-top: 16px; display: grid; gap: 12px; }
+.fig-text.hidden { display: none; }
+.fig-block { border: 1px solid var(--border); border-radius: 8px; background: #fafbfd; }
+.fig-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 7px 12px; border-bottom: 1px solid var(--border);
+  font-size: 13px; font-weight: 600; color: var(--muted);
+}
+.fig-body { margin: 0; padding: 11px 12px; font-size: 13px; line-height: 1.5; }
 
 footer { padding: 18px 20px 40px; color: var(--muted); font-size: 13px; }
 footer a { color: var(--accent); }
