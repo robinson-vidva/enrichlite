@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # build_genesets.py - download sources and emit compact index-based JSON.
 # Hallmark + Reactome + GO (BP/MF/CC) for human and mouse.
+# --go builds GO; --with-iea also emits IEA-included GO variants. Deterministic.
 
 import argparse
 import gzip

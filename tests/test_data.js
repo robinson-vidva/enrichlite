@@ -87,8 +87,8 @@ ok("Reactome: >=1 significant term at FDR<0.05", sig.length > 0, sig.length + " 
 ok("Reactome: a RAF/MAPK/ERK term is significant", mapk.length > 0,
    mapk.slice(0, 3).map(function (r) { return r.name; }).join("; "));
 
-// 6) GO checks (only when Stage 2 GO data is present; guarded so this stays
-// green before GO is built).
+// 6) GO checks (only when the GO data is present; guarded so this stays green
+// if a build omits GO).
 if (fs.existsSync(path.join(ROOT, "data/human/go_bp.json"))) {
   var goBp = L("data/human/go_bp.json");
   var goUni = universe(goBp);

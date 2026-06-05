@@ -13,13 +13,16 @@ The MIT LICENSE covers the enrichlite source code only. The gene-set data under
 - Attribution: Broad Institute, MIT, and the Regents of the University of California.
 - Source: https://www.gsea-msigdb.org/gsea/msigdb/
 - Files derived: `h.all` (human) and `mh.all` (mouse) Hallmark gene sets.
+- Version used is recorded in `data/manifest.json` (`sources.msigdb`).
 
-## Gene Ontology (Stage 2)
+## Gene Ontology
 - License: CC BY 4.0.
-- Source: https://geneontology.org/
-- The app footer must display the GO release date and the Zenodo DOI of the
-  release used.
-- Files derived: GO-BP, GO-MF, GO-CC gene sets (added in Stage 2).
+- Source: https://geneontology.org/ (go-basic ontology; `goa_human` and `mgi`
+  GAF annotations).
+- The app footer shows the GO release date and the Zenodo DOI of the release
+  used, also recorded in `data/manifest.json` (`sources.go`).
+- Files derived: GO-BP, GO-MF, GO-CC gene sets, plus optional IEA-included
+  variants (`go_*_iea.json`).
 
 ## NCBI Gene
 - NCBI gene_info is used at build time to map NCBI GeneIDs to symbols, to count

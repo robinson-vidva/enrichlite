@@ -116,7 +116,7 @@
     cols.forEach(function (c) {
       var o = document.createElement("option");
       o.value = c.key;
-      o.textContent = c.label + (c.available === false ? " (Stage 2)" : "");
+      o.textContent = c.label + (c.available === false ? " (unavailable)" : "");
       if (c.available === false) o.disabled = true;
       el.collection.appendChild(o);
     });
