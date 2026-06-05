@@ -392,6 +392,41 @@ def build_go_collections(godag, parent_map, namespaces, gaf_path, with_iea, mn, 
     return out
 
 
+def build_tree(terms, parent_map, namespaces):
+    # Reduced hierarchy for the GO tree view. For each shipped term, find its
+    # NEAREST shipped ancestors (over is_a + part_of, within namespace) and emit
+    # their indices into this same terms[] list. Output is parallel to terms[].
+    #
+    # Build-time honesty guarantee: because propagated gene counts are monotone
+    # up the DAG and the size band is [mn, mx], whenever a shipped term has any
+    # shipped ancestor at least one of its DIRECT parents is shipped. So every
+    # nearest-shipped-ancestor edge is a true direct GO parent with no omitted
+    # intermediates. We ASSERT that here (skip_edges must be 0) rather than trust
+    # it: it is the contract the UI relies on to draw solid edges as truly direct.
+    ids = [t["id"] for t in terms]
+    idx = {g: i for i, g in enumerate(ids)}
+    shipped = set(ids)
+    cache = {}
+    parents_out = []
+    skip_edges = 0
+    for g in ids:
+        anc = ancestors(g, parent_map, namespaces, cache)
+        sa = [a for a in anc if a in shipped]
+        nearest = [a for a in sa
+                   if not any(a in ancestors(y, parent_map, namespaces, cache) for y in sa if y != a)]
+        base = namespaces.get(g)
+        direct = set(p for p in parent_map.get(g, ()) if namespaces.get(p) == base)
+        row = []
+        for a in nearest:
+            if a not in direct:
+                skip_edges += 1
+            row.append(idx[a])
+        parents_out.append(sorted(row))
+    assert skip_edges == 0, \
+        "tree build: %d nearest-shipped-ancestor edge(s) are not direct GO parents" % skip_edges
+    return parents_out
+
+
 def parse_obo_meta(obo_path):
     # Release date from data-version; Zenodo DOI only if present (never guessed).
     release = None
@@ -499,6 +534,15 @@ def build_species(species, want, dl, sources, go_ctx=None):
         write_json(os.path.join(DATA, species, key + ".json"), {
             "collection": key, "species": species, "terms": terms
         })
+    # Per-variant reduced hierarchy for GO collections (tree view). Index-based,
+    # parallel to the (GO-id sorted) terms[]; emitted for base and IEA variants.
+    if go_ctx:
+        for key, terms in collections.items():
+            if not key.startswith("go_"):
+                continue
+            tree = build_tree(terms, go_ctx["pm"], go_ctx["ns"])
+            write_json(os.path.join(DATA, species, key + "_tree.json"),
+                       {"v": 1, "order": "by_go_id", "parents": tree})
     return collections, coding_n
 
 
@@ -560,10 +604,14 @@ def main():
                 "path": "data/" + sp + "/" + key + ".json", "available": True,
                 "N": universe_n(terms)
             }
+            if key.startswith("go_"):
+                entry["tree"] = "data/" + sp + "/" + key + "_tree.json"
             iea_key = key + "_iea"
             if iea_key in cols:
                 entry["iea"] = {"path": "data/" + sp + "/" + iea_key + ".json",
                                 "N": universe_n(cols[iea_key])}
+                if key.startswith("go_"):
+                    entry["iea"]["tree"] = "data/" + sp + "/" + iea_key + "_tree.json"
             manifest_collections.append(entry)
     # GO placeholders for namespaces not built this run (keep dropdown stable)
     for sp in args.species:

@@ -13,10 +13,13 @@
     sortDir: 1,
     page: 1,
     pageSize: 25,       // number, or "all"
-    chartType: "dot",   // "dot" | "bar"
+    chartType: "dot",   // "dot" | "bar" | "tree"
     topN: 25,
     colorScheme: "viridis",
-    currentSvg: null
+    currentSvg: null,
+    treeCache: {},      // cacheKey -> parents[] (per-variant reduced hierarchy)
+    treeUI: null,       // { collapsed:Set, expandedEdges:Set, seeded:bool } per run
+    treeRenderToken: 0  // guards async tree renders against races
   };
 
   var GENE_PREVIEW = 4;  // genes shown before "+N more" in the table
@@ -128,6 +131,7 @@
       state.collectionKey = firstAvail.key;
     }
     updateIeaToggle();
+    updateTreeToggle();
   }
 
   function currentCollectionMeta() {
@@ -166,6 +170,54 @@
       state.cache[cacheKey] = bundle;
       return bundle;
     });
+  }
+
+  // Tree view is available only for GO collections (those with a `tree` path in
+  // the manifest). Enable/disable the toggle from the SELECTED collection; if it
+  // becomes unavailable while Tree is active, fall back to Dot.
+  function selectedHasTree() {
+    var m = currentCollectionMeta();
+    return !!(m && m.tree);
+  }
+  function syncChartToggle() {
+    Array.prototype.forEach.call(el.chartToggle.children, function (b) {
+      b.classList.toggle("active", b.dataset.chart === state.chartType);
+    });
+  }
+  function updateTreeToggle() {
+    var b = el.chartToggle.querySelector('button[data-chart="tree"]');
+    if (!b) return;
+    var ok = selectedHasTree();
+    b.disabled = !ok;
+    b.classList.toggle("disabled", !ok);
+    b.title = ok ? "GO hierarchy view" : "Tree view is available for GO collections only";
+    if (!ok && state.chartType === "tree") {
+      state.chartType = "dot";
+      syncChartToggle();
+      if (state.lastResult) renderChart();
+    }
+  }
+  // Whether the LAST RUN's collection has a tree (drives actual rendering).
+  function treeAvailableForRun() {
+    return !!(state.lastRunMeta && state.lastRunMeta.tree);
+  }
+  // On-demand fetch + cache of the per-variant reduced hierarchy. Never called
+  // until the Tree view is opened on a GO run.
+  function loadTree() {
+    var m = state.lastRunMeta;
+    if (!m || !m.tree) return Promise.resolve(null);
+    var ck = m.cacheKey;
+    if (state.treeCache[ck]) return Promise.resolve(state.treeCache[ck]);
+    return fetchJson(dataUrl(m.tree)).then(function (j) {
+      state.treeCache[ck] = j.parents;
+      return j.parents;
+    });
+  }
+  // Full collection terms[] for the last run (parallel to the tree parents[]).
+  function runBundleTerms() {
+    var m = state.lastRunMeta;
+    var b = m && state.cache[m.cacheKey];
+    return b ? b.terms : null;
   }
 
   function setReport(html) { el.report.innerHTML = html; }
@@ -210,8 +262,11 @@
     if (tokens.length === 0) { setReport('<span class="warn">Paste at least one gene symbol.</span>'); return; }
     setRunning(true);
     var rm = currentCollectionMeta();
+    var useIea = ieaActive();
     state.lastRunMeta = { species: state.species, collection: rm ? rm.label : state.collectionKey,
-      key: rm ? rm.key : state.collectionKey, iea: ieaActive() };
+      key: rm ? rm.key : state.collectionKey, iea: useIea,
+      tree: rm ? (useIea ? (rm.iea && rm.iea.tree) : rm.tree) || null : null,
+      cacheKey: state.species + "/" + state.collectionKey + (useIea ? "/iea" : "") };
     setReport("Loading collection and computing...");
     loadCollection().then(function (bundle) {
       var msg = {
@@ -244,6 +299,7 @@
     state.lastResult = e.data.result;
     state.page = 1;
     collapseMemo.key = null;  // invalidate collapse cache for the new run
+    state.treeUI = { collapsed: new Set(), expandedEdges: new Set(), seeded: false };
     renderReport(e.data.result);
     renderTable();
     el.dlCsv.disabled = false;
@@ -717,6 +773,258 @@
     return svg;
   }
 
+  // ---- GO hierarchy (tree) view ----
+  var TREE_CAP = 250;
+
+  // Transitive ancestor closure over the reduced parents DAG (memoized per call).
+  function ancestorsOver(parents) {
+    var memo = {};
+    function anc(i) {
+      if (memo[i]) return memo[i];
+      var s = new Set();
+      memo[i] = s;  // set before recursion (DAG is acyclic, but guard anyway)
+      var ps = parents[i] || [];
+      for (var k = 0; k < ps.length; k++) {
+        var p = ps[k];
+        s.add(p);
+        anc(p).forEach(function (x) { s.add(x); });
+      }
+      return s;
+    }
+    return anc;
+  }
+
+  // Reduce the significant + filtered (+ collapsed) set onto a forest using the
+  // shipped reduced hierarchy. Solid edge = direct GO parent; dashed = ancestor
+  // with shipped-but-non-significant intervening terms (click to splice them in
+  // as faded nodes); roots are marked (not ontology roots); multi-parent shown.
+  function buildTreeModel(rows, M, parents, terms, ui) {
+    var idMap = terms.__idMap;
+    if (!idMap) { idMap = {}; for (var ii = 0; ii < terms.length; ii++) idMap[terms[ii].id] = ii; terms.__idMap = idMap; }
+
+    var capped = rows.length > TREE_CAP;
+    var shown = capped ? rows.slice(0, TREE_CAP) : rows;
+
+    var sIdx = [], idxToRow = {};
+    shown.forEach(function (r) {
+      var ti = idMap[r.id];
+      if (ti === undefined) return;
+      sIdx.push(ti); idxToRow[ti] = r;
+    });
+    var Sset = new Set(sIdx);
+
+    // result rows by term index (enrich faded intervening nodes when they overlap)
+    var resByIdx = {};
+    state.lastResult.rows.forEach(function (r) { var ti = idMap[r.id]; if (ti !== undefined) resByIdx[ti] = r; });
+
+    var anc = ancestorsOver(parents);
+    var vs = shown.map(function (r) { return nlog10(r.fdr); });
+    var vmin = Math.min.apply(null, vs), vmax = Math.max.apply(null, vs);
+    var colorT = function (v) { return vmax === vmin ? 1 : (v - vmin) / (vmax - vmin); };
+
+    var primary = {}, interveningOf = {}, otherParents = {};
+    sIdx.forEach(function (t) {
+      var A = anc(t), cand = [];
+      A.forEach(function (a) { if (Sset.has(a)) cand.push(a); });
+      if (!cand.length) { primary[t] = undefined; interveningOf[t] = []; return; }
+      cand.sort(function (a, b) {
+        var pa = idxToRow[a].p, pb = idxToRow[b].p;
+        if (pa !== pb) return pa - pb;       // most significant first
+        return anc(b).size - anc(a).size;     // tie-break: nearer (more ancestors) first
+      });
+      var prim = cand[0];
+      primary[t] = prim;
+      var inter = [];
+      A.forEach(function (x) { if (!Sset.has(x) && anc(x).has(prim)) inter.push(x); });
+      inter.sort(function (a, b) { return anc(a).size - anc(b).size; });  // primary-ward first
+      interveningOf[t] = inter;
+      if (cand.length > 1) otherParents[t] = cand.slice(1).map(function (a) { return idxToRow[a].name; });
+    });
+
+    var children = {}, roots = [];
+    sIdx.forEach(function (t) {
+      var p = primary[t];
+      if (p === undefined) roots.push(t);
+      else (children[p] = children[p] || []).push(t);
+    });
+    function byP(a, b) { return idxToRow[a].p - idxToRow[b].p; }
+    roots.sort(byP);
+    Object.keys(children).forEach(function (k) { children[k].sort(byP); });
+
+    var depthOf = {};
+    (function setDepth(list, d) {
+      list.forEach(function (n) { depthOf[n] = d; if (children[n]) setDepth(children[n], d + 1); });
+    })(roots, 0);
+
+    if (!ui.seeded) {  // auto-collapse deep subtrees once per run
+      var autoDepth = (window.innerWidth || 1024) <= 480 ? 3 : 5;
+      Object.keys(depthOf).forEach(function (n) {
+        n = +n;
+        if (depthOf[n] >= autoDepth && children[n] && children[n].length) ui.collapsed.add(n);
+      });
+      ui.seeded = true;
+    }
+
+    var displayRows = [];
+    function pushFaded(x, depth) {
+      displayRows.push({ idx: x, faded: true, depth: depth, edge: "dotted", interCount: 0,
+        hasChildren: false, collapsed: false, multi: null, row: resByIdx[x] || null,
+        fadedName: terms[x].name, fadedK: terms[x].genes.length });
+    }
+    function emitNode(t, depth, isRoot) {
+      var interCount = (interveningOf[t] || []).length;
+      var expanded = ui.expandedEdges.has(t);
+      var hasKids = !!(children[t] && children[t].length);
+      displayRows.push({
+        idx: t, faded: false, depth: depth,
+        edge: isRoot ? "root" : (interCount > 0 && !expanded ? "dashed" : "solid"),
+        interCount: interCount, interExpanded: expanded, hasChildren: hasKids,
+        collapsed: ui.collapsed.has(t), multi: otherParents[t] || null, row: idxToRow[t]
+      });
+      if (ui.collapsed.has(t) || !hasKids) return;
+      children[t].forEach(function (c) {
+        var interC = interveningOf[c] || [];
+        if (interC.length && ui.expandedEdges.has(c)) {
+          interC.forEach(function (x, j) { pushFaded(x, depth + 1 + j); });
+          emitNode(c, depth + 1 + interC.length, false);
+        } else {
+          emitNode(c, depth + 1, false);
+        }
+      });
+    }
+    roots.forEach(function (r) { emitNode(r, 0, true); });
+
+    var maxDepth = 0;
+    displayRows.forEach(function (d) { if (d.depth > maxDepth) maxDepth = d.depth; });
+
+    var caption = "GO hierarchy of " + shown.length + " of " + M + " significant terms" +
+      (capped ? " (showing top " + TREE_CAP + " - tighten filters or enable Collapse)" : "") +
+      ", ordered by significance.";
+
+    return { displayRows: displayRows, maxDepth: maxDepth, colorT: colorT,
+      caption: caption, shown: shown.length, capped: capped };
+  }
+
+  function onTreeClick(e) {
+    var node = e.target, ui = state.treeUI;
+    while (node && node !== e.currentTarget) {
+      var tw = node.getAttribute && node.getAttribute("data-tw");
+      if (tw != null) { var i1 = +tw; ui.collapsed.has(i1) ? ui.collapsed.delete(i1) : ui.collapsed.add(i1); renderChart(); return; }
+      var ed = node.getAttribute && node.getAttribute("data-edge");
+      if (ed != null) { var i2 = +ed; ui.expandedEdges.has(i2) ? ui.expandedEdges.delete(i2) : ui.expandedEdges.add(i2); renderChart(); return; }
+      node = node.parentNode;
+    }
+  }
+
+  function buildTreeSvg(model) {
+    var rows = model.displayRows;
+    var small = (window.innerWidth || 1024) <= 480;
+    var indent = small ? 14 : 22;
+    var rowH = small ? 24 : 26, mT = 14, mB = 18, leftPad = 12, twistyW = 14, swatch = 11;
+    var infoW = small ? 64 : 92;
+    var contentMax = leftPad + model.maxDepth * indent + twistyW + swatch + 8;
+    var W = contentMax + (small ? 200 : 320) + infoW + 16;
+    var minW = el.chartWrap.clientWidth || 680;
+    if (W < minW) W = minW;
+    var H = mT + rows.length * rowH + mB;
+    var svg = newSvg(W, H);
+    var scheme = state.colorScheme;
+    var xInfo = W - 12;
+
+    rows.forEach(function (d, i) {
+      var y = mT + i * rowH, cy = y + rowH / 2;
+      var baseX = leftPad + d.depth * indent;
+      var sx = baseX + twistyW, nx = sx + swatch + 6;
+
+      for (var lv = 0; lv < d.depth; lv++) {
+        var gx = leftPad + lv * indent + twistyW / 2;
+        svg.appendChild(svgEl("line", { x1: gx, y1: y, x2: gx, y2: y + rowH, stroke: "#eef1f6", "stroke-width": 1 }));
+      }
+      if (d.edge !== "root") {
+        var stubX0 = leftPad + (d.depth - 1) * indent + twistyW / 2;
+        var col = d.faded ? "#c2c9d6" : "#9aa3b4";
+        var dash = d.edge === "dashed" ? "4,3" : (d.edge === "dotted" ? "1,3" : null);
+        var ln = svgEl("line", { x1: stubX0, y1: cy, x2: sx - 2, y2: cy, stroke: col, "stroke-width": 1.2 });
+        if (dash) ln.setAttribute("stroke-dasharray", dash);
+        svg.appendChild(ln);
+      } else {
+        var rstub = svgEl("line", { x1: sx + swatch / 2, y1: y + 1, x2: sx + swatch / 2, y2: y - 5,
+          stroke: "#c2c9d6", "stroke-width": 1, "stroke-dasharray": "1,2" });
+        withTitle(rstub, "Broader GO parents are not significant or exceed the 5-500 gene size cap; displayed roots are not the ontology roots.");
+        svg.appendChild(rstub);
+      }
+
+      if (d.hasChildren) {
+        var tri = d.collapsed
+          ? (baseX + 3) + "," + (cy - 4) + " " + (baseX + 9) + "," + cy + " " + (baseX + 3) + "," + (cy + 4)
+          : (baseX + 1) + "," + (cy - 3) + " " + (baseX + 11) + "," + (cy - 3) + " " + (baseX + 6) + "," + (cy + 4);
+        svg.appendChild(svgEl("polygon", { points: tri, fill: "#66718a" }));
+        var hit = svgEl("rect", { x: baseX - 1, y: y, width: twistyW + 2, height: rowH, fill: "transparent" });
+        hit.setAttribute("data-tw", d.idx); hit.setAttribute("style", "cursor:pointer");
+        svg.appendChild(hit);
+      }
+
+      var swColor = d.faded ? "#d6dbe4" : cmap(scheme, model.colorT(nlog10(d.row.fdr)));
+      svg.appendChild(svgEl("rect", { x: sx, y: cy - swatch / 2, width: swatch, height: swatch, rx: 2,
+        fill: swColor, stroke: "rgba(0,0,0,0.25)", "stroke-width": 0.5 }));
+
+      var nm = d.faded ? d.fadedName : d.row.name;
+      var availName = xInfo - infoW - nx - (d.interCount ? 30 : 0) - (d.multi ? 14 : 0);
+      var maxChars = Math.max(6, Math.floor(availName / 6.4));
+      var label = nm.length > maxChars ? nm.slice(0, maxChars - 1) + "…" : nm;
+      var tnode = svgEl("text", { x: nx, y: cy + 4, "font-size": small ? 11 : 12.5, fill: d.faded ? "#9aa3b4" : "#1c2330" }, label);
+      withTitle(tnode, nm + (d.faded ? "  (intervening term, omitted from the significant set)"
+        : "  FDR=" + d.row.fdr.toExponential(2) + "  overlap=" + d.row.k + "/" + d.row.K));
+      svg.appendChild(tnode);
+
+      var afterName = nx + Math.min(nm.length, maxChars) * 6.4 + 6;
+      if (d.multi) {
+        var mp = svgEl("text", { x: afterName, y: cy + 4, "font-size": 11, fill: "#b07d2b" }, "◇");
+        withTitle(mp, "Also a child of: " + d.multi.join("; "));
+        svg.appendChild(mp); afterName += 14;
+      }
+      if (d.interCount) {
+        var badge = svgEl("text", { x: afterName, y: cy + 4, "font-size": 11, fill: "#2d6cdf" },
+          d.interExpanded ? "hide" : "+" + d.interCount);
+        badge.setAttribute("data-edge", d.idx); badge.setAttribute("style", "cursor:pointer");
+        withTitle(badge, d.interExpanded ? "Hide intervening omitted terms"
+          : d.interCount + " intervening term(s) omitted between this term and its parent - click to show");
+        svg.appendChild(badge);
+      }
+
+      var info = d.faded ? (d.fadedK + "g") : (d.row.k + "/" + d.row.K);
+      svg.appendChild(svgEl("text", { x: xInfo, y: cy + 4, "text-anchor": "end", "font-size": small ? 10 : 11, fill: "#66718a" }, info));
+    });
+
+    svg.addEventListener("click", onTreeClick);
+    return svg;
+  }
+
+  function renderTree(rows, M) {
+    var token = ++state.treeRenderToken;
+    el.chartWrap.innerHTML = '<p class="muted">Loading hierarchy...</p>';
+    Promise.all([loadTree(), Promise.resolve(runBundleTerms())]).then(function (res) {
+      if (token !== state.treeRenderToken) return;
+      var parents = res[0], terms = res[1];
+      if (!parents || !terms) {
+        el.chartWrap.innerHTML = '<p class="empty-chart">Hierarchy data unavailable for this collection.</p>';
+        el.vizCaption.textContent = ""; state.currentSvg = null;
+        el.dlSvg.disabled = true; el.dlPng.disabled = true; el.figText.classList.add("hidden");
+        return;
+      }
+      var model = buildTreeModel(rows, M, parents, terms, state.treeUI);
+      var svg = buildTreeSvg(model);
+      el.chartWrap.innerHTML = ""; el.chartWrap.appendChild(svg);
+      state.currentSvg = svg;
+      el.vizCaption.textContent = model.caption;
+      el.dlSvg.disabled = false; el.dlPng.disabled = false;
+      renderFigureText(model.shown, M);
+    }).catch(function () {
+      if (token !== state.treeRenderToken) return;
+      el.chartWrap.innerHTML = '<p class="empty-chart">Failed to load hierarchy.</p>';
+    });
+  }
+
   function renderChart() {
     if (!state.lastResult) {
       el.chartWrap.innerHTML = "";
@@ -726,6 +1034,8 @@
       el.figText.classList.add("hidden");
       return;
     }
+    // Tree view is GO-only; if the last run was non-GO, fall back to Dot.
+    if (state.chartType === "tree" && !treeAvailableForRun()) { state.chartType = "dot"; syncChartToggle(); }
     var rows = chartRows();
     var M = rows.length;
     if (M === 0) {
@@ -737,6 +1047,7 @@
       el.figText.classList.add("hidden");
       return;
     }
+    if (state.chartType === "tree") { renderTree(rows, M); return; }
     var top = rows.slice(0, state.topN);
     // Size the chart to the panel width (clamped) so it fills the space on wide
     // screens and scrolls inside its container on narrow ones; high enough
@@ -792,7 +1103,15 @@
     var scheme = (COLORMAPS[state.colorScheme] || COLORMAPS.viridis).label;
 
     var legend;
-    if (state.chartType === "bar") {
+    if (state.chartType === "tree") {
+      legend = "GO hierarchy of the " + topShown + " of " + M + " significant " + coll +
+        " terms (" + sigMetric + " < " + thr + ") for the " + sp + " query, arranged by their is_a/part_of " +
+        "relationships. Node color encodes -log10(" + sigMetric + ") on the " + scheme + " scale and each " +
+        "node lists its overlapping query genes. Solid edges are direct GO parent relationships; dashed edges " +
+        "denote an ancestor with intervening non-significant terms omitted (click to expand). Because gene sets " +
+        "are size-bounded to 5-500 genes, broad ancestor terms above the cap are not shown; displayed roots are " +
+        "not the ontology roots." + ieaClause + collapseClause;
+    } else if (state.chartType === "bar") {
       legend = "Bar plot of the top " + topShown + " of " + M + " significant " + coll +
         " terms (" + sigMetric + " < " + thr + ") for the " + sp + " query, ordered by significance. " +
         "Bar length shows -log10(FDR)." + ieaClause + collapseClause;
@@ -802,6 +1121,9 @@
         "The x-axis shows fold enrichment (log scale), dot size shows the number of overlapping query " +
         "genes, and dot color encodes -log10(" + sigMetric + ") on the " + scheme + " scale." + ieaClause + collapseClause;
     }
+    var treeMethods = state.chartType === "tree" ? (" The hierarchy view arranges significant terms by " +
+      "go-basic is_a and part_of relationships within namespace using a nearest-shipped-ancestor reduction; " +
+      "broad terms above the 5-500 gene size bound are omitted, so displayed roots are not the ontology roots.") : "";
 
     var methods = "Over-representation analysis was performed with enrichlite (" + ENRICHLITE_URL + "). " +
       sp + " query genes were tested for over-representation in " + collDesc + " using a one-tailed " +
@@ -810,7 +1132,7 @@
       "adjusted for multiple testing across the " + res.rows.length + " tested gene sets using " + corr +
       " correction, and gene sets with " + sigMetric + " < " + thr + " were considered significant. " +
       "This is over-representation analysis (ORA), not gene-set enrichment analysis (GSEA)." + collapseClause +
-      " Data source: " + sourceCitation(m.key) + ".";
+      treeMethods + " Data source: " + sourceCitation(m.key) + ".";
 
     el.figLegend.textContent = legend;
     el.figMethods.textContent = methods;
@@ -920,12 +1242,11 @@
     });
     el.collapseRedundant.checked = p.get("cl") === "1";
     if (p.has("clt")) el.collapseSim.value = p.get("clt");
-    if (p.get("ct") === "dot" || p.get("ct") === "bar") {
+    if (["dot", "bar", "tree"].indexOf(p.get("ct")) > -1) {
       state.chartType = p.get("ct");
-      Array.prototype.forEach.call(el.chartToggle.children, function (b) {
-        b.classList.toggle("active", b.dataset.chart === state.chartType);
-      });
+      syncChartToggle();
     }
+    updateTreeToggle();  // greys Tree (and falls back to Dot) if the restored collection is non-GO
     if (["10", "25", "50"].indexOf(p.get("top")) > -1) { state.topN = parseInt(p.get("top"), 10); el.topN.value = p.get("top"); }
     if (COLORMAPS[p.get("cs")]) { state.colorScheme = p.get("cs"); el.colorScheme.value = p.get("cs"); }
     if (p.has("g")) el.genes.value = p.get("g").split(/\s+/).filter(Boolean).join("\n");
@@ -984,6 +1305,7 @@
     var thr = parseFloat(el.fdr.value) || 0;
     return "enrichlite | " + sp + " | " + coll + " | background: " + bg + " (N=" + res.N + ") | " +
       sigMetric + " < " + thr + " (" + (bonf ? "Bonferroni" : "BH-FDR") + ")" +
+      (state.chartType === "tree" ? " | view: GO hierarchy (nearest-shipped-ancestor)" : "") +
       (sourceCitation(m.key) ? " | data: " + sourceCitation(m.key) : "") + " | " + ENRICHLITE_URL;
   }
 
@@ -1058,7 +1380,7 @@
       state.species = b.dataset.species;
       populateCollections();
     });
-    el.collection.addEventListener("change", function () { state.collectionKey = el.collection.value; updateIeaToggle(); });
+    el.collection.addEventListener("change", function () { state.collectionKey = el.collection.value; updateIeaToggle(); updateTreeToggle(); });
     el.background.addEventListener("change", function () {
       el.customBgWrap.classList.toggle("hidden", el.background.value !== "custom");
     });
@@ -1128,10 +1450,9 @@
     el.copyLink.addEventListener("click", copyLink);
     el.chartToggle.addEventListener("click", function (e) {
       var b = e.target.closest("button[data-chart]");
-      if (!b) return;
-      Array.prototype.forEach.call(el.chartToggle.children, function (c) { c.classList.remove("active"); });
-      b.classList.add("active");
+      if (!b || b.disabled) return;
       state.chartType = b.dataset.chart;
+      syncChartToggle();
       renderChart();
     });
     el.topN.addEventListener("change", function () {
