@@ -119,6 +119,11 @@
           <input id="termSearch" type="search" placeholder="term name" />
         </div>
         <div class="rc-group">
+          <label class="check-label" for="collapseRedundant"><input type="checkbox" id="collapseRedundant" /> Collapse redundant</label>
+          <input id="collapseSim" type="number" min="0.5" max="1" step="0.05" value="0.7" title="overlap-gene similarity threshold" />
+          <span class="helpq" tabindex="0" role="button" aria-label="Help: collapse redundant terms" title="Groups terms that are significant because of the same query genes (overlap-gene containment at or above the threshold) and shows one representative per group, with the collapsed terms expandable. Helps with GO parent/child redundancy.">?</span>
+        </div>
+        <div class="rc-group">
           <label for="pageSize">Rows per page</label>
           <select id="pageSize">
             <option value="25" selected>25</option>

@@ -72,6 +72,8 @@
     minFold: document.getElementById("minFold"),
     minOverlap: document.getElementById("minOverlap"),
     termSearch: document.getElementById("termSearch"),
+    collapseRedundant: document.getElementById("collapseRedundant"),
+    collapseSim: document.getElementById("collapseSim"),
     chartToggle: document.getElementById("chartToggle"),
     topN: document.getElementById("topN"),
     colorScheme: document.getElementById("colorScheme"),
@@ -241,6 +243,7 @@
     if (!e.data.ok) { setReport('<span class="warn">Error: ' + e.data.error + '</span>'); return; }
     state.lastResult = e.data.result;
     state.page = 1;
+    collapseMemo.key = null;  // invalidate collapse cache for the new run
     renderReport(e.data.result);
     renderTable();
     el.dlCsv.disabled = false;
@@ -319,10 +322,58 @@
     return x.toFixed(4);
   }
 
-  // Full filtered + sorted result set (paginated only at render time).
+  // Redundancy collapse: group terms that are significant because of the same
+  // query genes. Greedy, significance-first: the most significant unassigned
+  // term becomes a representative; any less-significant term whose overlap genes
+  // are mostly contained in it (|B and A| / |B| >= threshold) joins as a member.
+  // Uses overlap genes (the matched query genes), so it de-duplicates GO
+  // parent/child redundancy and works on any collection. Memoized per run.
+  var collapseMemo = { key: null, reps: null };
+
+  function collapseEnabled() { return el.collapseRedundant.checked; }
+
+  function collapseThr() {
+    var v = parseFloat(el.collapseSim.value);
+    if (isNaN(v)) return 0.7;
+    return Math.min(1, Math.max(0.1, v));
+  }
+
+  function collapseRows(filtered) {
+    var thr = collapseThr();
+    var sig = thr + "|" + filtered.map(function (r) { return r.id; }).join(",");
+    if (collapseMemo.key === sig) return collapseMemo.reps;
+    var ordered = filtered.slice().sort(function (a, b) { return a.p - b.p; });
+    var sets = ordered.map(function (r) { return new Set(r.genes); });
+    var used = new Array(ordered.length);
+    var reps = [];
+    for (var i = 0; i < ordered.length; i++) {
+      if (used[i]) continue;
+      used[i] = true;
+      var repSet = sets[i], members = [];
+      for (var j = i + 1; j < ordered.length; j++) {
+        if (used[j]) continue;
+        var b = sets[j], inter = 0;
+        b.forEach(function (g) { if (repSet.has(g)) inter++; });
+        if (b.size && inter / b.size >= thr) { used[j] = true; members.push(ordered[j]); }
+      }
+      var rep = Object.assign({}, ordered[i]);
+      rep.members = members;
+      reps.push(rep);
+    }
+    collapseMemo.key = sig;
+    collapseMemo.reps = reps;
+    return reps;
+  }
+
+  function memberNames(r) {
+    return (r.members && r.members.length) ? r.members.map(function (m) { return m.name; }).join("; ") : "";
+  }
+
+  // Full filtered (+ optionally collapsed) + sorted result set; paginated at render.
   function buildView() {
     if (!state.lastResult) return [];
     var rows = state.lastResult.rows.filter(passesFilters);
+    if (collapseEnabled()) rows = collapseRows(rows);
     var k = state.sortKey, dir = state.sortDir;
     rows.sort(function (a, b) {
       var av = a[k], bv = b[k];
@@ -347,18 +398,30 @@
       ' <button type="button" class="more" data-extra="' + extra + '">+' + extra + " more</button></td>";
   }
 
-  function rowHtml(r) {
-    return "<tr>" +
-      '<td class="term" title="' + esc(r.name) + '">' + esc(r.name) + "</td>" +
-      '<td class="ns">' + esc(r.namespace) + "</td>" +
+  function cellsAfterTerm(r) {
+    return '<td class="ns">' + esc(r.namespace) + "</td>" +
       '<td class="num">' + r.K + "</td>" +
       '<td class="num">' + r.k + "</td>" +
       '<td class="num">' + r.fold.toFixed(2) + "</td>" +
       '<td class="num">' + fmtP(r.p) + "</td>" +
       '<td class="num">' + fmtP(r.fdr) + "</td>" +
       '<td class="num">' + fmtP(r.bonferroni) + "</td>" +
-      genesCell(r.genes) +
-      "</tr>";
+      genesCell(r.genes);
+  }
+
+  function rowHtml(r, idx) {
+    var sim = (r.members && r.members.length) ?
+      ' <button type="button" class="sim" data-rep="' + idx + '" data-n="' + r.members.length +
+      '">+' + r.members.length + " similar</button>" : "";
+    return '<tr data-rep="' + idx + '">' +
+      '<td class="term" title="' + esc(r.name) + '">' + esc(r.name) + sim + "</td>" +
+      cellsAfterTerm(r) + "</tr>";
+  }
+
+  function memberRowHtml(m, idx) {
+    return '<tr class="member-row hidden" data-rep="' + idx + '">' +
+      '<td class="term member" title="' + esc(m.name) + '">' + esc(m.name) + "</td>" +
+      cellsAfterTerm(m) + "</tr>";
   }
 
   function renderTable() {
@@ -376,11 +439,23 @@
     var end = size > 0 ? Math.min(start + size, total) : total;
 
     var html = "";
-    for (var i = start; i < end; i++) html += rowHtml(rows[i]);
+    for (var i = start; i < end; i++) {
+      html += rowHtml(rows[i], i);
+      var mem = rows[i].members;
+      if (mem && mem.length) {
+        for (var j = 0; j < mem.length; j++) html += memberRowHtml(mem[j], i);
+      }
+    }
     el.tbody.innerHTML = html;
 
-    var shown = total === 0 ? "0 of 0 terms" :
-      (start + 1) + "-" + end + " of " + total + " terms";
+    var noun = collapseEnabled() ? "representative terms" : "terms";
+    var collapsed = 0;
+    if (collapseEnabled()) {
+      rows.forEach(function (r) { collapsed += (r.members ? r.members.length : 0); });
+    }
+    var shown = total === 0 ? "0 of 0 " + noun :
+      (start + 1) + "-" + end + " of " + total + " " + noun +
+      (collapsed > 0 ? " (" + collapsed + " collapsed)" : "");
     el.showingInfo.textContent = "Showing " + shown +
       (pages > 1 ? "  (page " + state.page + " of " + pages + ")" : "");
     el.prevPage.disabled = state.page <= 1;
@@ -422,6 +497,7 @@
     if (!isNaN(mo)) chips.push("overlap >= " + mo);
     var q = el.termSearch.value.trim();
     if (q) chips.push('search "' + q + '"');
+    if (collapseEnabled()) chips.push("collapsed >= " + collapseThr());
 
     chips.push("sorted by " + (SORT_LABELS[state.sortKey] || state.sortKey) +
       " " + (state.sortDir === 1 ? "asc" : "desc"));
@@ -489,6 +565,7 @@
   function chartRows() {
     if (!state.lastResult) return [];
     var rows = state.lastResult.rows.filter(passesFilters);
+    if (collapseEnabled()) rows = collapseRows(rows);
     rows.sort(function (a, b) { return a.p - b.p; });
     return rows;
   }
@@ -704,6 +781,8 @@
     var collDesc = COLL_DESC[m.key] || coll;
     if (isGo) collDesc += " (go-basic, " + (m.iea ? "including" : "excluding") + " IEA electronic annotations)";
     var ieaClause = isGo ? (" GO annotations " + (m.iea ? "include" : "exclude") + " IEA (electronic) evidence.") : "";
+    var collapseClause = collapseEnabled() ? (" Redundant terms were collapsed by overlapping-gene" +
+      " similarity (>= " + collapseThr() + "); one representative per group is shown.") : "";
     var bonf = el.adjust.value === "bonferroni";
     var sigMetric = bonf ? "Bonferroni-adjusted p" : "FDR";
     var corr = bonf ? "Bonferroni" : "Benjamini-Hochberg FDR";
@@ -716,12 +795,12 @@
     if (state.chartType === "bar") {
       legend = "Bar plot of the top " + topShown + " of " + M + " significant " + coll +
         " terms (" + sigMetric + " < " + thr + ") for the " + sp + " query, ordered by significance. " +
-        "Bar length shows -log10(FDR)." + ieaClause;
+        "Bar length shows -log10(FDR)." + ieaClause + collapseClause;
     } else {
       legend = "Dot plot of the top " + topShown + " of " + M + " significant " + coll +
         " terms (" + sigMetric + " < " + thr + ") for the " + sp + " query, ordered by significance. " +
         "The x-axis shows fold enrichment (log scale), dot size shows the number of overlapping query " +
-        "genes, and dot color encodes -log10(" + sigMetric + ") on the " + scheme + " scale." + ieaClause;
+        "genes, and dot color encodes -log10(" + sigMetric + ") on the " + scheme + " scale." + ieaClause + collapseClause;
     }
 
     var methods = "Over-representation analysis was performed with enrichlite (" + ENRICHLITE_URL + "). " +
@@ -730,8 +809,8 @@
       bgDesc + " (N = " + res.N + "); " + res.n + " query genes mapped into this universe. P-values were " +
       "adjusted for multiple testing across the " + res.rows.length + " tested gene sets using " + corr +
       " correction, and gene sets with " + sigMetric + " < " + thr + " were considered significant. " +
-      "This is over-representation analysis (ORA), not gene-set enrichment analysis (GSEA). Data source: " +
-      sourceCitation(m.key) + ".";
+      "This is over-representation analysis (ORA), not gene-set enrichment analysis (GSEA)." + collapseClause +
+      " Data source: " + sourceCitation(m.key) + ".";
 
     el.figLegend.textContent = legend;
     el.figMethods.textContent = methods;
@@ -765,10 +844,10 @@
 
   // Copy the current filtered + sorted results as TSV (pastes into Excel/Sheets).
   function copyTableTsv() {
-    var head = ["term", "namespace", "set_size_K", "overlap_k", "query_n", "background_N", "fold", "p", "fdr", "bonferroni", "genes"];
+    var head = ["term", "namespace", "set_size_K", "overlap_k", "query_n", "background_N", "fold", "p", "fdr", "bonferroni", "collapsed_members", "genes"];
     var lines = ["# " + provenanceLine(), head.join("\t")];
     visibleRows().forEach(function (r) {
-      lines.push([r.name, r.namespace, r.K, r.k, r.n, r.N, r.fold, r.p, r.fdr, r.bonferroni, r.genes.join(" ")].join("\t"));
+      lines.push([r.name, r.namespace, r.K, r.k, r.n, r.N, r.fold, r.p, r.fdr, r.bonferroni, memberNames(r), r.genes.join(" ")].join("\t"));
     });
     copyToClipboard(lines.join("\n")).then(function (ok) { flash(el.copyTable, ok ? "Copied" : "Copy failed"); });
   }
@@ -790,6 +869,10 @@
     if (el.minFold.value) p.set("mf", el.minFold.value);
     if (el.minOverlap.value) p.set("mo", el.minOverlap.value);
     if (el.termSearch.value.trim()) p.set("q", el.termSearch.value.trim());
+    if (el.collapseRedundant.checked) {
+      p.set("cl", "1");
+      if (parseFloat(el.collapseSim.value) !== 0.7) p.set("clt", el.collapseSim.value);
+    }
     p.set("ct", state.chartType);
     p.set("top", String(state.topN));
     p.set("cs", state.colorScheme);
@@ -835,6 +918,8 @@
       var eln = { smin: el.sizeMin, smax: el.sizeMax, mf: el.minFold, mo: el.minOverlap, q: el.termSearch }[k];
       if (p.has(k)) eln.value = p.get(k);
     });
+    el.collapseRedundant.checked = p.get("cl") === "1";
+    if (p.has("clt")) el.collapseSim.value = p.get("clt");
     if (p.get("ct") === "dot" || p.get("ct") === "bar") {
       state.chartType = p.get("ct");
       Array.prototype.forEach.call(el.chartToggle.children, function (b) {
@@ -903,10 +988,10 @@
   }
 
   function downloadCsv() {
-    var head = ["term", "namespace", "set_size_K", "overlap_k", "query_n", "background_N", "fold", "p", "fdr", "bonferroni", "genes"];
+    var head = ["term", "namespace", "set_size_K", "overlap_k", "query_n", "background_N", "fold", "p", "fdr", "bonferroni", "collapsed_members", "genes"];
     var lines = ["# " + provenanceLine(), head.join(",")];
     visibleRows().forEach(function (r) {
-      var cells = [r.name, r.namespace, r.K, r.k, r.n, r.N, r.fold, r.p, r.fdr, r.bonferroni, r.genes.join(" ")];
+      var cells = [r.name, r.namespace, r.K, r.k, r.n, r.N, r.fold, r.p, r.fdr, r.bonferroni, memberNames(r), r.genes.join(" ")];
       lines.push(cells.map(csvCell).join(","));
     });
     saveBlob(lines.join("\n"), "text/csv", "enrichlite_results.csv");
@@ -932,7 +1017,16 @@
       provenance: provenanceLine(),
       N: state.lastResult.N,
       n: state.lastResult.n,
-      results: visibleRows()
+      results: visibleRows().map(function (r) {
+        var o = {};
+        for (var key in r) { if (key !== "members") o[key] = r[key]; }
+        if (r.members && r.members.length) {
+          o.collapsedMembers = r.members.map(function (m) {
+            return { term: m.name, k: m.k, fold: m.fold, p: m.p, fdr: m.fdr };
+          });
+        }
+        return o;
+      })
     };
     saveBlob(JSON.stringify(payload, null, 2), "application/json", "enrichlite_results.json");
   }
@@ -980,6 +1074,8 @@
     el.minFold.addEventListener("input", repage);
     el.minOverlap.addEventListener("input", repage);
     el.termSearch.addEventListener("input", repage);
+    el.collapseRedundant.addEventListener("change", repage);
+    el.collapseSim.addEventListener("input", repage);
     el.pageSize.addEventListener("change", function () {
       var v = el.pageSize.value;
       state.pageSize = v === "all" ? "all" : parseInt(v, 10);
@@ -995,6 +1091,8 @@
       el.minFold.value = "";
       el.minOverlap.value = "";
       el.termSearch.value = "";
+      el.collapseRedundant.checked = false;
+      el.collapseSim.value = "0.7";
       el.pageSize.value = "25";
       state.pageSize = 25;
       state.sortKey = "p";
@@ -1002,8 +1100,18 @@
       state.page = 1;
       renderTable();
     });
-    // Expand a truncated genes cell ("+N more") or term cell (click anywhere).
+    // Expand a truncated genes cell ("+N more"), collapsed members ("+N
+    // similar"), or term cell (click anywhere).
     el.tbody.addEventListener("click", function (e) {
+      var sim = e.target.closest(".sim");
+      if (sim) {
+        var idx = sim.dataset.rep, shown = false;
+        Array.prototype.forEach.call(
+          el.tbody.querySelectorAll('tr.member-row[data-rep="' + idx + '"]'),
+          function (tr) { tr.classList.toggle("hidden"); shown = !tr.classList.contains("hidden"); });
+        sim.textContent = shown ? "hide" : "+" + sim.dataset.n + " similar";
+        return;
+      }
       var btn = e.target.closest(".more");
       if (btn) {
         var td = btn.closest("td.genes");

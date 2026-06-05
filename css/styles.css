@@ -193,6 +193,16 @@ td.genes .more {
   font-size: 11px; padding: 0 0 0 2px; white-space: nowrap;
 }
 td.genes .more:hover { text-decoration: underline; }
+/* Redundancy collapse: a representative row carries a "+N similar" toggle in
+   its Term cell; collapsed member rows are hidden until expanded. */
+td.term .sim {
+  border: none; background: none; color: var(--accent); cursor: pointer;
+  font-size: 11px; padding: 0 0 0 6px; white-space: nowrap;
+}
+td.term .sim:hover { text-decoration: underline; }
+tr.member-row.hidden { display: none; }
+tr.member-row td { background: #f7f9fc; }
+td.term.member { padding-left: 22px; color: var(--muted); }
 tbody tr:hover { background: #f4f7fe; }
 
 /* Sort direction indicator drawn as a small triangle (no glyph). */
