@@ -20,6 +20,12 @@
 
   var GENE_PREVIEW = 4;  // genes shown before "+N more" in the table
 
+  // Coherent cell-cycle example set, per species (HGNC upper / MGI title-case).
+  var EXAMPLE = {
+    human: "CDK1 CDK2 CCNB1 CCNB2 CCNA2 CDC20 BUB1 BUB1B MAD2L1 AURKA AURKB PLK1 CCNE1 CDC25A CDC25B CDC25C ESPL1 NDC80 CENPA",
+    mouse: "Cdk1 Cdk2 Ccnb1 Ccnb2 Ccna2 Cdc20 Bub1 Bub1b Mad2l1 Aurka Aurkb Plk1 Ccne1 Cdc25a Cdc25b Cdc25c Espl1 Ndc80 Cenpa"
+  };
+
   // NOTE: only one collection runs per analysis (single background universe,
   // single BH/Bonferroni family). Combining collections is a deliberate future
   // decision: it would redefine the background universe AND make the multiple-
@@ -37,6 +43,8 @@
     background: document.getElementById("background"),
     customBgWrap: document.getElementById("customBgWrap"),
     customBg: document.getElementById("customBg"),
+    loadExample: document.getElementById("loadExample"),
+    clearGenes: document.getElementById("clearGenes"),
     fdr: document.getElementById("fdr"),
     adjust: document.getElementById("adjust"),
     run: document.getElementById("run"),
@@ -123,6 +131,31 @@
   }
 
   function setReport(html) { el.report.innerHTML = html; }
+
+  // Fill the textarea with the species-appropriate example set (replaces any
+  // current content). Does not auto-run.
+  function loadExample() {
+    el.genes.value = EXAMPLE[state.species] || EXAMPLE.human;
+    setReport("");
+    el.genes.focus();
+  }
+
+  // Reset the input and clear prior results, status, and charts (no reload).
+  function clearGenes() {
+    el.genes.value = "";
+    state.lastResult = null;
+    state.viewRows = [];
+    state.page = 1;
+    el.tbody.innerHTML = "";
+    el.showingInfo.textContent = "";
+    el.filterChips.innerHTML = "";
+    el.noResults.classList.add("hidden");
+    el.dlCsv.disabled = true;
+    el.dlJson.disabled = true;
+    setReport("");
+    renderChart();           // lastResult null -> placeholder, disables chart export
+    el.genes.focus();
+  }
 
   function run() {
     var tokens = tokenize(el.genes.value);
@@ -633,6 +666,8 @@
       el.customBgWrap.classList.toggle("hidden", el.background.value !== "custom");
     });
     el.run.addEventListener("click", run);
+    el.loadExample.addEventListener("click", loadExample);
+    el.clearGenes.addEventListener("click", clearGenes);
     // Filter/sort changes reset to page 1; pagination keeps the page.
     var repage = function () { state.page = 1; renderTable(); };
     el.fdr.addEventListener("change", repage);

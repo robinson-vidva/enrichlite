@@ -19,6 +19,11 @@
       <label for="genes">Paste gene symbols (newline, comma, or whitespace separated)</label>
       <textarea id="genes" rows="8" placeholder="BRAF&#10;TP53&#10;EGFR"></textarea>
 
+      <div class="input-actions">
+        <button id="loadExample" type="button">Load example</button>
+        <button id="clearGenes" type="button">Clear</button>
+      </div>
+
       <div class="controls">
         <div class="control">
           <span class="ctl-label">Species<span class="helpq" title="Human and mouse are separate gene universes with separate symbol tables. Pick the species your gene list comes from. Symbols are matched case-insensitively within a species.">?</span></span>

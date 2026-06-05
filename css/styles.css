@@ -82,6 +82,7 @@ textarea { resize: vertical; }
 .toggle button.active { background: var(--accent); color: #fff; }
 
 .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
+.input-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0 2px; }
 
 button {
   border: 1px solid var(--border);
